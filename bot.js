@@ -25,8 +25,15 @@ let botActivo = true;
 let conexionEstablecida = false;
 let carpetaMultimedia = "";
 let urlSheets = "";
+let reconectando = false;
+let tiempoInicio = Date.now();
 
 const r = (arr) => arr[Math.floor(Math.random() * arr.length)];
+
+function logTiempo(etapa) {
+    const elapsed = ((Date.now() - tiempoInicio) / 1000).toFixed(1);
+    console.log(`\x1b[33m[ tiempo ] ${etapa}: ${elapsed}s\x1b[0m`);
+}
 
 function capitalize(s) {
     if (!s) return "";
@@ -208,6 +215,7 @@ async function subirGrupos(sock, url) {
 }
 
 async function sincronizarDescarga(url) {
+    const inicio = Date.now();
     try {
         const res = await axios.get(url);
         if (res.data.status === "success") {
@@ -223,6 +231,7 @@ async function sincronizarDescarga(url) {
             res.data.grupos.forEach(g => db.run("INSERT INTO grupos VALUES (?,?)", [g.id, g.nombre]));
             fs.writeFileSync(DB_PATH, Buffer.from(db.export()));
             console.log(`\x1b[32m[ sync ] ok | productos: ${res.data.productos.length} | grupos: ${res.data.grupos.length}\x1b[0m`);
+            logTiempo("sincronizacion");
             return true;
         }
     } catch (e) { console.log("\x1b[31m[ sync error ]\x1b[0m", e.message); return false; }
@@ -263,13 +272,21 @@ async function enviarMultimedia(sock, gid, contenido, item) {
     
     if (archivos.length > 0) {
         for (const arch of archivos) {
-            if (arch.type === 'image') await sock.sendMessage(gid, { image: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
-            else if (arch.type === 'video') await sock.sendMessage(gid, { video: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
-            else await sock.sendMessage(gid, { document: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
-            await delay(2000);
+            try {
+                if (arch.type === 'image') await sock.sendMessage(gid, { image: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
+                else if (arch.type === 'video') await sock.sendMessage(gid, { video: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
+                else await sock.sendMessage(gid, { document: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
+                await delay(2000);
+            } catch (e) {
+                console.log(`\x1b[31m[ error ] enviar ${arch.type}: ${e.message}\x1b[0m`);
+            }
         }
     } else {
-        await sock.sendMessage(gid, { text: contenido });
+        try {
+            await sock.sendMessage(gid, { text: contenido });
+        } catch (e) {
+            console.log(`\x1b[31m[ error ] enviar texto: ${e.message}\x1b[0m`);
+        }
     }
 }
 
@@ -288,6 +305,8 @@ async function ejecutarCiclo(sock, db, jidPersonal, cicloNum, gruposLista, produ
         contadorProductos[item] = (contadorProductos[item] || 0) + 1;
     }
     
+    const inicioCiclo = Date.now();
+    
     for (let i = 0; i < gruposLista.length; i++) {
         if (!botActivo) break;
         const [gid, gnom] = gruposLista[i];
@@ -301,13 +320,20 @@ async function ejecutarCiclo(sock, db, jidPersonal, cicloNum, gruposLista, produ
         
         await delay(delayMs);
         
-        await sock.sendPresenceUpdate('composing', gid);
-        await delay(6000);
-        await sock.sendPresenceUpdate('paused', gid);
+        try {
+            await sock.sendPresenceUpdate('composing', gid);
+            await delay(6000);
+            await sock.sendPresenceUpdate('paused', gid);
+        } catch (e) {
+            console.log(`\x1b[31m[ error ] typing en ${gnom}: ${e.message}\x1b[0m`);
+            continue;
+        }
         
         await enviarMultimedia(sock, gid, contenido, item);
         await delay(1000);
     }
+    
+    const tiempoCiclo = ((Date.now() - inicioCiclo) / 60000).toFixed(1);
     
     let resumenProductos = "";
     for (const [prod, count] of Object.entries(contadorProductos)) {
@@ -315,9 +341,9 @@ async function ejecutarCiclo(sock, db, jidPersonal, cicloNum, gruposLista, produ
         resumenProductos += `${prod} (${count})`;
     }
     
-    const mensajeResumen = `[ciclo ${cicloNum}] completado\nGrupos: ${cantidad}\nProductos: ${resumenProductos}\nTiempo real: ${minutosRestantes}min`;
+    const mensajeResumen = `[ciclo ${cicloNum}] completado\nGrupos: ${cantidad}\nProductos: ${resumenProductos}\nTiempo real: ${minutosRestantes}min\nDuracion: ${tiempoCiclo}min`;
     await sock.sendMessage(jidPersonal, { text: mensajeResumen });
-    console.log(`\x1b[32m[ciclo ${cicloNum}] completado\x1b[0m`);
+    console.log(`\x1b[32m[ciclo ${cicloNum}] completado | duracion: ${tiempoCiclo}min\x1b[0m`);
 }
 
 async function iniciarCiclos(sock, db, jidPersonal) {
@@ -363,7 +389,35 @@ async function programarSyncDiario(sock) {
     }, msHasta8am);
 }
 
+let watchdogInterval;
+let ultimoMensaje = Date.now();
+
+function iniciarWatchdog(sock, db, jidPersonal) {
+    if (watchdogInterval) clearInterval(watchdogInterval);
+    watchdogInterval = setInterval(async () => {
+        if (!botActivo) return;
+        const tiempoSinMensajes = (Date.now() - ultimoMensaje) / 1000;
+        if (tiempoSinMensajes > 300 && !reconectando) {
+            console.log(`\x1b[33m[ watchdog ] ${tiempoSinMensajes}s sin actividad, verificando conexion...\x1b[0m`);
+            try {
+                await sock.sendPresenceUpdate('available');
+                ultimoMensaje = Date.now();
+                console.log(`\x1b[32m[ watchdog ] conexion activa\x1b[0m`);
+            } catch (e) {
+                console.log(`\x1b[31m[ watchdog ] conexion caida: ${e.message}\x1b[0m`);
+                reconectando = true;
+                botActivo = false;
+                setTimeout(() => {
+                    console.log(`\x1b[33m[ watchdog ] reiniciando bot...\x1b[0m`);
+                    iniciar();
+                }, 5000);
+            }
+        }
+    }, 60000);
+}
+
 async function iniciar() {
+    tiempoInicio = Date.now();
     console.log("\x1b[34m[ markmitienda ] bot de whatsapp\x1b[0m");
     
     if (!fs.existsSync(DB_PATH)) {
@@ -400,6 +454,7 @@ async function iniciar() {
         try {
             const codigo = await sock.requestPairingCode(num.trim());
             console.log(`\x1b[32m\ncodigo: ${codigo}\n\x1b[0m`);
+            logTiempo("vinculacion");
         } catch (e) { console.log(`\x1b[31m[ error ] ${e.message}\x1b[0m`); }
     }
     
@@ -408,15 +463,18 @@ async function iniciar() {
     sock.ev.on("connection.update", async (u) => {
         if (u.connection === "open" && !conexionEstablecida) {
             conexionEstablecida = true;
+            logTiempo("estabilizacion");
             console.log("\x1b[32m[ ok ] whatsapp conectado\x1b[0m");
             console.log("\x1b[36m[ aviso ] escribe 'prueba' en tu chat\x1b[0m");
             const jidPersonal = sock.user.id.split(":")[0] + "@s.whatsapp.net";
             await subirGrupos(sock, urlSheets);
             programarSyncDiario(sock);
+            iniciarWatchdog(sock, db, jidPersonal);
             iniciarCiclos(sock, db, jidPersonal);
-        } else if (u.connection === "close") {
+        } else if (u.connection === "close" && !reconectando) {
             console.log("\x1b[31m[ log ] conexion cerrada. esperando 5s...\x1b[0m");
             conexionEstablecida = false;
+            reconectando = true;
             await delay(5000);
             if (botActivo) iniciar();
         }
@@ -427,6 +485,7 @@ async function iniciar() {
         if (!msg.message || msg.key.fromMe === false) return;
         const txt = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
         if (txt === "prueba") {
+            ultimoMensaje = Date.now();
             console.log("\x1b[35m[ test ] iniciando...\x1b[0m");
             const grupos = db.exec("SELECT id, nombre FROM grupos");
             const prods = db.exec("SELECT item, descripcion, precio FROM productos");
@@ -456,11 +515,17 @@ async function iniciar() {
                 const contenido = generarMensaje(gnom, item, desc, precio, plantilla);
                 console.log(`\x1b[36m[ test ] ${gnom} | espera: ${(delayMs/1000).toFixed(0)}s | producto: ${item}\x1b[0m`);
                 await delay(delayMs);
-                await sock.sendPresenceUpdate('composing', gid);
-                await delay(6000);
-                await sock.sendPresenceUpdate('paused', gid);
+                try {
+                    await sock.sendPresenceUpdate('composing', gid);
+                    await delay(6000);
+                    await sock.sendPresenceUpdate('paused', gid);
+                } catch (e) {
+                    console.log(`\x1b[31m[ error ] typing en ${gnom}: ${e.message}\x1b[0m`);
+                    continue;
+                }
                 await enviarMultimedia(sock, gid, contenido, item);
                 await delay(1000);
+                ultimoMensaje = Date.now();
             }
             
             let resumenProductos = "";
