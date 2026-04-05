@@ -17,6 +17,8 @@ const HORA_FIN = 22;
 const MINUTOS_CICLO = 260;
 const SEGUNDOS_CICLO = MINUTOS_CICLO * 60;
 
+let botActivo = true;
+
 async function subirGrupos(sock, url) {
     try {
         const grupos = await sock.groupFetchAllParticipating();
@@ -27,6 +29,7 @@ async function subirGrupos(sock, url) {
 }
 
 async function ejecutarCiclo(sock, db, carpetaRuta, jidPersonal, cicloNum, gruposLista, productosLista) {
+    if (!botActivo) return;
     const cantidad = gruposLista.length;
     const delayBaseMs = (SEGUNDOS_CICLO / cantidad) * 1000;
     console.log(`\x1b[35m[CICLO ${cicloNum}] Inicio | Grupos: ${cantidad} | Delay base: ${(delayBaseMs/1000).toFixed(0)}s\x1b[0m`);
@@ -39,6 +42,7 @@ async function ejecutarCiclo(sock, db, carpetaRuta, jidPersonal, cicloNum, grupo
     const emoCall = ["👇", "📩", "✅", "⚡"];
     
     for (const [gid, gnom] of gruposLista) {
+        if (!botActivo) break;
         const prod = r(productosLista);
         const [item, desc, precio] = prod;
         const delayFinal = Math.min(Math.max(delayBaseMs * (0.6 + Math.random() * 0.8), 7000), 25000);
@@ -64,7 +68,7 @@ async function iniciarCiclos(sock, db, carpetaRuta, urlSheets) {
     const ahora = new Date();
     const horaActual = ahora.getHours();
     
-    if (horaActual >= HORA_INICIO && horaActual < HORA_FIN) {
+    if (horaActual >= HORA_INICIO && horaActual < HORA_FIN && botActivo) {
         const grupos = db.exec("SELECT id, nombre FROM grupos");
         const productos = db.exec("SELECT item, descripcion, precio FROM productos");
         if (grupos[0] && productos[0]) {
@@ -73,18 +77,21 @@ async function iniciarCiclos(sock, db, carpetaRuta, urlSheets) {
             const listaP = productos[0].values;
             
             await ejecutarCiclo(sock, db, carpetaRuta, jidPersonal, 1, listaG, listaP);
+            if (!botActivo) return;
             setTimeout(async () => {
+                if (!botActivo) return;
                 const g2 = db.exec("SELECT id, nombre FROM grupos");
                 const p2 = db.exec("SELECT item, descripcion, precio FROM productos");
                 if (g2[0] && p2[0]) await ejecutarCiclo(sock, db, carpetaRuta, jidPersonal, 2, g2[0].values, p2[0].values);
             }, MINUTOS_CICLO * 60 * 1000);
             setTimeout(async () => {
+                if (!botActivo) return;
                 const g3 = db.exec("SELECT id, nombre FROM grupos");
                 const p3 = db.exec("SELECT item, descripcion, precio FROM productos");
                 if (g3[0] && p3[0]) await ejecutarCiclo(sock, db, carpetaRuta, jidPersonal, 3, g3[0].values, p3[0].values);
             }, MINUTOS_CICLO * 120 * 1000);
         }
-    } else {
+    } else if (botActivo) {
         const manana = new Date();
         manana.setHours(HORA_INICIO, 0, 0, 0);
         if (manana <= ahora) manana.setDate(manana.getDate() + 1);
@@ -132,23 +139,39 @@ async function iniciar() {
     const { version } = await fetchLatestBaileysVersion();
     const sock = makeWASocket({ version, auth: state, printQRInTerminal: false, logger: pino({ level: "silent" }), browser: ["Ubuntu", "Chrome", "20.0.0"] });
 
-    if (!sock.authState.creds.registered) {
+    let vinculacionCompletada = false;
+
+    if (!sock.authState.creds.registered && !vinculacionCompletada) {
         console.log("\x1b[33m[ INFO ] Vinculacion...\x1b[0m");
         await delay(3000);
         const num = await cuestion("\x1b[33m[ CONFIG ] Tu numero (ej: 521XXXXXXXXXX): \x1b[0m");
-        const codigo = await sock.requestPairingCode(num.trim());
-        console.log("\x1b[32m\nCODIGO: " + codigo + "\n\x1b[0m");
+        try {
+            const codigo = await sock.requestPairingCode(num.trim());
+            console.log("\x1b[32m\nCODIGO: " + codigo + "\n\x1b[0m");
+            vinculacionCompletada = true;
+        } catch (e) { console.log("\x1b[31m[ ERROR ] " + e.message + "\x1b[0m"); }
     }
 
     sock.ev.on("creds.update", saveCreds);
+    
+    let conexionEstablecida = false;
+    
     sock.ev.on("connection.update", async (u) => {
-        if (u.connection === "open") {
+        if (u.connection === "open" && !conexionEstablecida) {
+            conexionEstablecida = true;
             console.log("\x1b[32m[ OK ] WhatsApp conectado\x1b[0m");
             console.log("\x1b[36m[ AVISO ] Escribe 'prueba' para test\x1b[0m");
             const urlRes = db.exec("SELECT valor FROM ajustes WHERE clave = 'url_sheets'");
-            if (urlRes[0]) await subirGrupos(sock, urlRes[0].values[0][0]);
-            iniciarCiclos(sock, db, "/sdcard/DCIM/", urlRes[0]?.values[0][0]);
-        } else if (u.connection === "close") iniciar();
+            if (urlRes[0]) {
+                await subirGrupos(sock, urlRes[0].values[0][0]);
+                iniciarCiclos(sock, db, "/sdcard/DCIM/", urlRes[0].values[0][0]);
+            }
+        } else if (u.connection === "close") {
+            console.log("\x1b[31m[ LOG ] Conexion cerrada. Esperando 5s...\x1b[0m");
+            conexionEstablecida = false;
+            await delay(5000);
+            if (botActivo) iniciar();
+        }
     });
 
     const r = (a) => a[Math.floor(Math.random() * a.length)];
