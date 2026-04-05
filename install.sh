@@ -5,7 +5,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo -e "${BLUE}=========================================${NC}"
-echo -e "${YELLOW}   INSTALADOR MARKMITIENDA V3           ${NC}"
+echo -e "${YELLOW}   INSTALADOR MARKMITIENDA V4           ${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
 echo -e "${BLUE}[ 1/5 ]${NC} Actualizando sistema..."
