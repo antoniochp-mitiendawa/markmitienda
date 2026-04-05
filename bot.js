@@ -70,7 +70,7 @@ function getNotaEmoji() { return r(emojiDB.nota); }
 function getDineroEmoji() { return r(emojiDB.dinero); }
 
 function formatearTexto(producto, descripcion, nombreGrupo) {
-    const productoFormateado = capitalizeEachWord(producto);
+    const productoFormateado = `*_${capitalizeEachWord(producto)}_*`;
     const descripcionFormateada = (descripcion && descripcion !== "Sin descripcion") ? capitalize(descripcion) : null;
     const grupoFormateado = `*${capitalizeEachWord(nombreGrupo)}*`;
     return { productoFormateado, descripcionFormateada, grupoFormateado };
@@ -78,7 +78,7 @@ function formatearTexto(producto, descripcion, nombreGrupo) {
 
 function generarMensaje(nombreGrupo, producto, descripcion, precio, plantilla) {
     const gancho = getGancho();
-    const intro = getIntro();
+    const intro = `_${getIntro()}_`;
     const saludoEmoji = r(emojiDB.saludos);
     const saludoHora = getSaludoPorHora();
     const emojiProducto = getEmojiProducto(producto);
@@ -93,15 +93,15 @@ function generarMensaje(nombreGrupo, producto, descripcion, precio, plantilla) {
     let msg = "";
     
     if (plantilla === 1) {
-        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n————————————————————\n> *${intro} ${grupoFormateado}*\n   _${saludoHora}_ ${saludoEmoji}\n————————————————————\n${checkEmoji} *${productoFormateado}* ${emojiProducto}`;
+        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n————————————————————\n> ${intro} ${grupoFormateado}\n   _${saludoHora}_ ${saludoEmoji}\n————————————————————\n${checkEmoji} ${productoFormateado} ${emojiProducto}`;
         if (tieneDescripcion) msg += `\n${notaEmoji} ${descripcionFormateada}`;
         if (tienePrecio) msg += `\n${dineroEmoji} *Precio:* $${precio} MXN`;
     } else if (plantilla === 2) {
-        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${grupoFormateado}*\n   _${saludoHora}_ ${saludoEmoji}\n\n${checkEmoji} *${productoFormateado}* ${emojiProducto}`;
+        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> ${intro} ${grupoFormateado}\n   _${saludoHora}_ ${saludoEmoji}\n\n${checkEmoji} ${productoFormateado} ${emojiProducto}`;
         if (tieneDescripcion) msg += `\n${notaEmoji} ${descripcionFormateada}`;
         if (tienePrecio) msg += `\n${dineroEmoji} *Precio:* $${precio} MXN`;
     } else {
-        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${grupoFormateado}*\n   _${saludoHora}_ ${saludoEmoji}\n\n${checkEmoji} *${productoFormateado}* ${emojiProducto}`;
+        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> ${intro} ${grupoFormateado}\n   _${saludoHora}_ ${saludoEmoji}\n\n${checkEmoji} ${productoFormateado} ${emojiProducto}`;
         if (tieneDescripcion) msg += `\n${notaEmoji} ${descripcionFormateada}`;
         if (tienePrecio) msg += `\n${dineroEmoji} *Precio:* $${precio} MXN`;
     }
@@ -122,20 +122,17 @@ function getTiempoRealDisponible() {
         return 0;
     }
     
-    const horaInicioCiclo = HORA_INICIO;
-    const minutosInicioCiclo = 0;
-    let minutosTranscurridos = (horaActual - horaInicioCiclo) * 60 + (minutosActual - minutosInicioCiclo);
+    const minutosTranscurridos = (horaActual - HORA_INICIO) * 60 + minutosActual;
+    const cicloActual = Math.floor(minutosTranscurridos / MINUTOS_CICLO);
     
-    if (minutosTranscurridos >= MINUTOS_CICLO * 2) {
-        minutosTranscurridos = MINUTOS_CICLO * 2;
-    } else if (minutosTranscurridos >= MINUTOS_CICLO) {
-        minutosTranscurridos = MINUTOS_CICLO;
+    if (cicloActual >= 3) {
+        return 0;
     }
     
-    const cicloActual = Math.floor(minutosTranscurridos / MINUTOS_CICLO) + 1;
-    const minutosRestantes = MINUTOS_CICLO - (minutosTranscurridos % MINUTOS_CICLO);
+    const minutosEnCicloActual = minutosTranscurridos % MINUTOS_CICLO;
+    const minutosRestantes = MINUTOS_CICLO - minutosEnCicloActual;
     
-    console.log(`\x1b[33m[ tiempo ] ciclo ${cicloActual} | minutos restantes: ${minutosRestantes}\x1b[0m`);
+    console.log(`\x1b[33m[ tiempo ] ciclo ${cicloActual + 1} | minutos restantes: ${minutosRestantes}\x1b[0m`);
     
     return minutosRestantes * 60 * 1000;
 }
@@ -179,15 +176,34 @@ function generarListaEnvioProductos(cantidadEnvios, productosLista) {
     return lista;
 }
 
+async function grupoExisteEnSheet(url, id) {
+    try {
+        const res = await axios.get(url);
+        if (res.data.status === "success") {
+            const gruposExistentes = res.data.grupos || [];
+            return gruposExistentes.some(g => g.id === id);
+        }
+    } catch (e) {
+        console.log(`\x1b[31m[ error ] al verificar grupo: ${e.message}\x1b[0m`);
+    }
+    return false;
+}
+
 async function subirGrupos(sock, url) {
     try {
         const grupos = await sock.groupFetchAllParticipating();
         const lista = Object.entries(grupos).map(([id, info]) => ({ id: id, nombre: info.subject }));
+        let nuevos = 0;
+        
         for (const g of lista) {
-            await axios.get(`${url}?action=reporte&id=${encodeURIComponent(g.id)}&nombre=${encodeURIComponent(g.nombre)}`);
-            await delay(100);
+            const existe = await grupoExisteEnSheet(url, g.id);
+            if (!existe) {
+                await axios.get(`${url}?action=reporte&id=${encodeURIComponent(g.id)}&nombre=${encodeURIComponent(g.nombre)}`);
+                nuevos++;
+                await delay(100);
+            }
         }
-        console.log(`\x1b[32m[ upload ] subidos ${lista.length} grupos\x1b[0m`);
+        console.log(`\x1b[32m[ upload ] subidos ${nuevos} grupos nuevos (${lista.length - nuevos} ya existian)\x1b[0m`);
     } catch (e) { console.log(`\x1b[31m[ upload error ] ${e.message}\x1b[0m`); }
 }
 
@@ -201,6 +217,8 @@ async function sincronizarDescarga(url) {
             db.run("CREATE TABLE IF NOT EXISTS productos (item TEXT, descripcion TEXT, precio TEXT)");
             db.run("CREATE TABLE IF NOT EXISTS grupos (id TEXT, nombre TEXT)");
             db.run("INSERT OR REPLACE INTO ajustes VALUES ('url_sheets',?)", [url]);
+            db.run("DELETE FROM productos");
+            db.run("DELETE FROM grupos");
             res.data.productos.forEach(p => db.run("INSERT INTO productos VALUES (?,?,?)", [p.item, p.descripcion || "Sin descripcion", p.precio || ""]));
             res.data.grupos.forEach(g => db.run("INSERT INTO grupos VALUES (?,?)", [g.id, g.nombre]));
             fs.writeFileSync(DB_PATH, Buffer.from(db.export()));
@@ -211,6 +229,25 @@ async function sincronizarDescarga(url) {
     return false;
 }
 
+function getTextoMultimedia(tipo, item) {
+    const itemFormateado = `*_${capitalizeEachWord(item)}_*`;
+    const opcionesVideo = [
+        `🎥 Mira el video de ${itemFormateado}`,
+        `📹 Video demostracion de ${itemFormateado}`,
+        `🎬 Observa el video de ${itemFormateado}`
+    ];
+    const opcionesDocumento = [
+        `📄 Checa este documento de ${itemFormateado}`,
+        `📑 Informacion detallada de ${itemFormateado}`,
+        `📋 Ficha tecnica de ${itemFormateado}`,
+        `📎 Especificaciones de ${itemFormateado}`
+    ];
+    
+    if (tipo === 'video') return r(opcionesVideo);
+    if (tipo === 'documento') return r(opcionesDocumento);
+    return "";
+}
+
 async function enviarMultimedia(sock, gid, contenido, item) {
     const archivos = [];
     if (fs.existsSync(carpetaMultimedia)) {
@@ -218,14 +255,17 @@ async function enviarMultimedia(sock, gid, contenido, item) {
         const base = item.toLowerCase();
         const imagen = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg')));
         const video = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.mp4') || f.endsWith('.webm')));
+        const documento = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.pdf') || f.endsWith('.docx')));
         if (imagen) archivos.push({ type: 'image', file: imagen, texto: contenido });
-        if (video) archivos.push({ type: 'video', file: video, texto: `🎥 Mira el video de ${capitalizeEachWord(item)}` });
+        if (video) archivos.push({ type: 'video', file: video, texto: getTextoMultimedia('video', item) });
+        if (documento) archivos.push({ type: 'documento', file: documento, texto: getTextoMultimedia('documento', item) });
     }
     
     if (archivos.length > 0) {
         for (const arch of archivos) {
             if (arch.type === 'image') await sock.sendMessage(gid, { image: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
-            else await sock.sendMessage(gid, { video: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
+            else if (arch.type === 'video') await sock.sendMessage(gid, { video: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
+            else await sock.sendMessage(gid, { document: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
             await delay(2000);
         }
     } else {
@@ -242,6 +282,11 @@ async function ejecutarCiclo(sock, db, jidPersonal, cicloNum, gruposLista, produ
     console.log(`\x1b[35m[ciclo ${cicloNum}] inicio | grupos: ${cantidad} | tiempo real: ${minutosRestantes}min\x1b[0m`);
     
     const listaEnvios = generarListaEnvioProductos(cantidad, productosLista);
+    const contadorProductos = {};
+    
+    for (const [item] of listaEnvios) {
+        contadorProductos[item] = (contadorProductos[item] || 0) + 1;
+    }
     
     for (let i = 0; i < gruposLista.length; i++) {
         if (!botActivo) break;
@@ -261,8 +306,17 @@ async function ejecutarCiclo(sock, db, jidPersonal, cicloNum, gruposLista, produ
         await sock.sendPresenceUpdate('paused', gid);
         
         await enviarMultimedia(sock, gid, contenido, item);
-        await sock.sendMessage(jidPersonal, { text: `[ciclo ${cicloNum}] ${gnom}\n${item}` });
+        await delay(1000);
     }
+    
+    let resumenProductos = "";
+    for (const [prod, count] of Object.entries(contadorProductos)) {
+        if (resumenProductos) resumenProductos += ", ";
+        resumenProductos += `${prod} (${count})`;
+    }
+    
+    const mensajeResumen = `[ciclo ${cicloNum}] completado\nGrupos: ${cantidad}\nProductos: ${resumenProductos}\nTiempo real: ${minutosRestantes}min`;
+    await sock.sendMessage(jidPersonal, { text: mensajeResumen });
     console.log(`\x1b[32m[ciclo ${cicloNum}] completado\x1b[0m`);
 }
 
@@ -388,6 +442,11 @@ async function iniciar() {
             
             const delays = generarTiemposEnvio(listaG.length, tiempoRealMs);
             const listaEnvios = generarListaEnvioProductos(listaG.length, listaP);
+            const contadorProductos = {};
+            
+            for (const [item] of listaEnvios) {
+                contadorProductos[item] = (contadorProductos[item] || 0) + 1;
+            }
             
             for (let i = 0; i < listaG.length; i++) {
                 const [gid, gnom] = listaG[i];
@@ -401,9 +460,17 @@ async function iniciar() {
                 await delay(6000);
                 await sock.sendPresenceUpdate('paused', gid);
                 await enviarMultimedia(sock, gid, contenido, item);
-                await sock.sendMessage(msg.key.remoteJid, { text: `[test] ${gnom}\n${item}` });
+                await delay(1000);
             }
-            console.log("\x1b[32m[ test ] completado\x1b[0m");
+            
+            let resumenProductos = "";
+            for (const [prod, count] of Object.entries(contadorProductos)) {
+                if (resumenProductos) resumenProductos += ", ";
+                resumenProductos += `${prod} (${count})`;
+            }
+            
+            console.log(`\x1b[32m[ test ] completado | grupos: ${listaG.length} | productos: ${resumenProductos}\x1b[0m`);
+            await sock.sendMessage(msg.key.remoteJid, { text: `[test] completado\nGrupos: ${listaG.length}\nProductos: ${resumenProductos}` });
         }
     });
 }
