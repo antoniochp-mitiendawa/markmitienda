@@ -12,18 +12,65 @@ const DB_PATH = './grupospro.sqlite';
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const cuestion = (t) => new Promise((r) => rl.question(t, r));
 
+let emojiDB = {};
+let sinonimosDB = {};
+
+try { emojiDB = require('./emojis.js'); } catch(e) { console.log("\x1b[33m[ AVISO ] emojis.js no encontrado\x1b[0m"); }
+try { sinonimosDB = require('./sinonimos.js'); } catch(e) { console.log("\x1b[33m[ AVISO ] sinonimos.js no encontrado\x1b[0m"); }
+
 const HORA_INICIO = 9;
 const HORA_FIN = 22;
 const MINUTOS_CICLO = 260;
 const SEGUNDOS_CICLO = MINUTOS_CICLO * 60;
 
 let botActivo = true;
+let conexionEstablecida = false;
+
+const r = (arr) => { if (!arr || arr.length === 0) return ""; return arr[Math.floor(Math.random() * arr.length)]; };
+
+function getSaludoPorHora() {
+    const h = new Date().getHours();
+    if (h >= 6 && h < 12) return r(sinonimosDB.saludos?.manana || ["¡BUENOS DIAS!"]);
+    if (h >= 12 && h < 19) return r(sinonimosDB.saludos?.tarde || ["¡BUENAS TARDES!"]);
+    return r(sinonimosDB.saludos?.noche || ["¡BUENAS NOCHES!"]);
+}
+
+function getEmojiProducto(producto) {
+    const p = producto.toLowerCase();
+    if (p.includes("playera")) return r(emojiDB.productos?.playera || ["👕"]);
+    if (p.includes("gorra")) return r(emojiDB.productos?.gorra || ["🧢"]);
+    if (p.includes("vaso")) return r(emojiDB.productos?.vaso || ["🥤"]);
+    return r(emojiDB.productos?.default || ["🎁"]);
+}
+
+function generarMensaje(nombreGrupo, producto, descripcion, precio) {
+    const variantes = Math.random() > 0.5;
+    const separador = variantes ? "————————————————————" : "";
+    const promoEmoji = r(emojiDB.promo || ["🔥", "⭐", "📢"]);
+    const intro = r(sinonimosDB.intro || ["HOLA, COLABORADORES DE"]);
+    const saludoEmoji = r(emojiDB.saludos || ["👋", "🙌", "✨"]);
+    const llamadoEmoji = r(emojiDB.llamado || ["👇", "📩", "✅"]);
+    const textoLlamado = r(sinonimosDB.llamado || ["SOLICITA EL TUYO POR PRIVADO"]);
+    const emojiProducto = getEmojiProducto(producto);
+    const saludoHora = getSaludoPorHora();
+
+    let msg = `${promoEmoji} *EXCELENTE OPORTUNIDAD* ${promoEmoji}\n`;
+    if (separador) msg += `${separador}\n`;
+    msg += `> *${intro} ${nombreGrupo.toUpperCase()}*\n   _*${saludoHora}*_ ${saludoEmoji}\n`;
+    if (separador) msg += `${separador}\n`;
+    msg += `✅ *${producto.toUpperCase()}* ${emojiProducto}\n📝 ${descripcion}\n💰 *PRECIO:* $${precio} MXN\n`;
+    if (separador) msg += `${separador}\n`;
+    msg += `${llamadoEmoji} *${textoLlamado.toUpperCase()}*`;
+    return msg;
+}
 
 async function subirGrupos(sock, url) {
     try {
         const grupos = await sock.groupFetchAllParticipating();
         const lista = Object.entries(grupos).map(([id, info]) => ({ id: id, nombre: info.subject }));
-        await axios.get(`${url}?action=upload&grupos=${JSON.stringify(lista)}`);
+        for (const g of lista) {
+            await axios.get(`${url}?action=reporte&id=${encodeURIComponent(g.id)}&nombre=${encodeURIComponent(g.nombre)}`);
+        }
         console.log(`\x1b[32m[ UPLOAD ] Subidos ${lista.length} grupos\x1b[0m`);
     } catch (e) { console.log(`\x1b[31m[ UPLOAD ERROR ] ${e.message}\x1b[0m`); }
 }
@@ -32,21 +79,14 @@ async function ejecutarCiclo(sock, db, carpetaRuta, jidPersonal, cicloNum, grupo
     if (!botActivo) return;
     const cantidad = gruposLista.length;
     const delayBaseMs = (SEGUNDOS_CICLO / cantidad) * 1000;
-    console.log(`\x1b[35m[CICLO ${cicloNum}] Inicio | Grupos: ${cantidad} | Delay base: ${(delayBaseMs/1000).toFixed(0)}s\x1b[0m`);
-    
-    const r = (a) => a[Math.floor(Math.random() * a.length)];
-    const getSaludo = () => { const h = new Date().getHours(); if (h >= 6 && h < 12) return "¡BUENOS DIAS!"; if (h >= 12 && h < 19) return "¡BUENAS TARDES!"; return "¡BUENAS NOCHES!"; };
-    const intro = ["HOLA, COLABORADORES DE", "ESTIMADOS AMIGOS DE", "QUÉ TAL, GRUPO", "SALUDOS CORDIALES A"];
-    const llamado = ["SOLICITA EL TUYO POR PRIVADO", "RESERVA EL TUYO AHORA", "APROVECHA ESTA OFERTA"];
-    const emoPromo = ["🔥", "⭐", "📢", "💎"];
-    const emoCall = ["👇", "📩", "✅", "⚡"];
+    console.log(`\x1b[35m[CICLO ${cicloNum}] Inicio | Grupos: ${cantidad}\x1b[0m`);
     
     for (const [gid, gnom] of gruposLista) {
         if (!botActivo) break;
         const prod = r(productosLista);
         const [item, desc, precio] = prod;
         const delayFinal = Math.min(Math.max(delayBaseMs * (0.6 + Math.random() * 0.8), 7000), 25000);
-        const msgText = `${r(emoPromo)} *EXCELENTE OPORTUNIDAD* ${r(emoPromo)}\n> *${r(intro)} ${gnom.toUpperCase()}*\n   _*${getSaludo()}*_\n\n✅ *${item.toUpperCase()}*\n📝 ${desc}\n💰 *PRECIO ESPECIAL:* $${precio} MXN\n\n${r(emoCall)} *${r(llamado).toUpperCase()}*`;
+        const contenido = generarMensaje(gnom, item, desc, precio);
         
         console.log(`\x1b[36m[CICLO ${cicloNum}] ${gnom} (${(delayFinal/1000).toFixed(0)}s)\x1b[0m`);
         await sock.sendPresenceUpdate('composing', gid);
@@ -55,8 +95,8 @@ async function ejecutarCiclo(sock, db, carpetaRuta, jidPersonal, cicloNum, grupo
         
         const buscarImg = (prod) => { if (!fs.existsSync(carpetaRuta)) return null; const arch = fs.readdirSync(carpetaRuta); const base = prod.toLowerCase(); return arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.jpg') || f.endsWith('.png'))); };
         const img = buscarImg(item);
-        if (img) await sock.sendMessage(gid, { image: { url: carpetaRuta + img }, caption: msgText });
-        else await sock.sendMessage(gid, { text: msgText });
+        if (img) await sock.sendMessage(gid, { image: { url: carpetaRuta + img }, caption: contenido });
+        else await sock.sendMessage(gid, { text: contenido });
         
         await sock.sendMessage(jidPersonal, { text: `[CICLO ${cicloNum}] ${gnom}\n${item}` });
         await delay(delayFinal);
@@ -139,22 +179,17 @@ async function iniciar() {
     const { version } = await fetchLatestBaileysVersion();
     const sock = makeWASocket({ version, auth: state, printQRInTerminal: false, logger: pino({ level: "silent" }), browser: ["Ubuntu", "Chrome", "20.0.0"] });
 
-    let vinculacionCompletada = false;
-
-    if (!sock.authState.creds.registered && !vinculacionCompletada) {
+    if (!sock.authState.creds.registered && !conexionEstablecida) {
         console.log("\x1b[33m[ INFO ] Vinculacion...\x1b[0m");
         await delay(3000);
         const num = await cuestion("\x1b[33m[ CONFIG ] Tu numero (ej: 521XXXXXXXXXX): \x1b[0m");
         try {
             const codigo = await sock.requestPairingCode(num.trim());
             console.log("\x1b[32m\nCODIGO: " + codigo + "\n\x1b[0m");
-            vinculacionCompletada = true;
         } catch (e) { console.log("\x1b[31m[ ERROR ] " + e.message + "\x1b[0m"); }
     }
 
     sock.ev.on("creds.update", saveCreds);
-    
-    let conexionEstablecida = false;
     
     sock.ev.on("connection.update", async (u) => {
         if (u.connection === "open" && !conexionEstablecida) {
@@ -174,13 +209,6 @@ async function iniciar() {
         }
     });
 
-    const r = (a) => a[Math.floor(Math.random() * a.length)];
-    const getSaludo = () => { const h = new Date().getHours(); if (h >= 6 && h < 12) return "¡BUENOS DIAS!"; if (h >= 12 && h < 19) return "¡BUENAS TARDES!"; return "¡BUENAS NOCHES!"; };
-    const intro = ["HOLA, COLABORADORES DE", "ESTIMADOS AMIGOS DE", "QUÉ TAL, GRUPO", "SALUDOS CORDIALES A"];
-    const llamado = ["SOLICITA EL TUYO POR PRIVADO", "RESERVA EL TUYO AHORA", "APROVECHA ESTA OFERTA"];
-    const emoPromo = ["🔥", "⭐", "📢", "💎"];
-    const emoCall = ["👇", "📩", "✅", "⚡"];
-
     sock.ev.on("messages.upsert", async ({ messages }) => {
         const msg = messages[0];
         if (!msg.message || msg.key.fromMe === false) return;
@@ -199,14 +227,14 @@ async function iniciar() {
                 const prod = r(listaP);
                 const [item, desc, precio] = prod;
                 const delayMsg = Math.floor(Math.random() * (25000 - 7000 + 1) + 7000);
-                const msgText = `${r(emoPromo)} *EXCELENTE OPORTUNIDAD* ${r(emoPromo)}\n> *${r(intro)} ${gnom.toUpperCase()}*\n   _*${getSaludo()}*_\n\n✅ *${item.toUpperCase()}*\n📝 ${desc}\n💰 *PRECIO ESPECIAL:* $${precio} MXN\n\n${r(emoCall)} *${r(llamado).toUpperCase()}*`;
+                const contenido = generarMensaje(gnom, item, desc, precio);
                 console.log(`\x1b[36m[ TEST ] ${gnom} (${(delayMsg/1000).toFixed(0)}s)\x1b[0m`);
                 await sock.sendPresenceUpdate('composing', gid);
                 await delay(3000);
                 await sock.sendPresenceUpdate('paused', gid);
                 const img = buscarImg(item);
-                if (img) await sock.sendMessage(gid, { image: { url: carpeta + img }, caption: msgText });
-                else await sock.sendMessage(gid, { text: msgText });
+                if (img) await sock.sendMessage(gid, { image: { url: carpeta + img }, caption: contenido });
+                else await sock.sendMessage(gid, { text: contenido });
                 await sock.sendMessage(msg.key.remoteJid, { text: `[TEST] ${gnom}\n${item}` });
                 await delay(delayMsg);
             }
