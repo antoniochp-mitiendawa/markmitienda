@@ -28,6 +28,14 @@ let urlSheets = "";
 
 const r = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
+function capitalize(s) {
+    return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
+}
+
+function capitalizeEachWord(str) {
+    return str.split(' ').map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()).join(' ');
+}
+
 function getSaludoPorHora() {
     const h = new Date().getHours();
     if (h >= 6 && h < 12) return r(sinonimosDB.saludos.manana);
@@ -56,9 +64,16 @@ function getGancho() {
 
 function getIntro() { return r(sinonimosDB.intro); }
 function getLlamado() { return { emoji: r(emojiDB.llamado), texto: r(sinonimosDB.llamado) }; }
-function getCheckEmoji() { return r(emojiDB.check || ["✅", "✔️", "🔹", "▫️", "▪️", "🔸", "🔘"]); }
-function getNotaEmoji() { return r(emojiDB.nota || ["📝", "📄", "📃", "📋", "✏️", "📌", "🔖"]); }
-function getDineroEmoji() { return r(emojiDB.dinero || ["💰", "💲", "🏷️", "💸", "💵", "💶", "💷"]); }
+function getCheckEmoji() { return r(emojiDB.check); }
+function getNotaEmoji() { return r(emojiDB.nota); }
+function getDineroEmoji() { return r(emojiDB.dinero); }
+
+function formatearTexto(producto, descripcion, precio, nombreGrupo) {
+    const productoFormateado = capitalizeEachWord(producto);
+    const descripcionFormateada = descripcion && descripcion !== "Sin descripcion" ? capitalize(descripcion) : "";
+    const grupoFormateado = `*${capitalizeEachWord(nombreGrupo)}*`;
+    return { productoFormateado, descripcionFormateada, precio, grupoFormateado };
+}
 
 function generarMensaje(nombreGrupo, producto, descripcion, precio, plantilla) {
     const gancho = getGancho();
@@ -71,27 +86,41 @@ function generarMensaje(nombreGrupo, producto, descripcion, precio, plantilla) {
     const notaEmoji = getNotaEmoji();
     const dineroEmoji = getDineroEmoji();
     
-    const productoUpper = producto.charAt(0).toUpperCase() + producto.slice(1).toLowerCase();
-    const nombreGrupoLower = nombreGrupo.toLowerCase();
-    const tieneDescripcion = descripcion && descripcion !== "Sin descripcion" && descripcion !== "";
+    const { productoFormateado, descripcionFormateada, grupoFormateado } = formatearTexto(producto, descripcion, precio, nombreGrupo);
     
     let msg = "";
     
     if (plantilla === 1) {
-        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n————————————————————\n> *${intro} ${nombreGrupoLower}*\n   _*${saludoHora}*_ ${saludoEmoji}\n————————————————————\n${checkEmoji} *${productoUpper}* ${emojiProducto}`;
-        if (tieneDescripcion) msg += `\n${notaEmoji} ${descripcion}`;
-        msg += `\n${dineroEmoji} *precio:* $${precio} mxn\n————————————————————\n${llamado.emoji} *${llamado.texto}*`;
+        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n————————————————————\n> *${intro} ${grupoFormateado}*\n   _${saludoHora}_ ${saludoEmoji}\n————————————————————\n${checkEmoji} *${productoFormateado}* ${emojiProducto}`;
+        if (descripcionFormateada) msg += `\n${notaEmoji} ${descripcionFormateada}`;
+        msg += `\n${dineroEmoji} *Precio:* $${precio} MXN\n————————————————————\n${llamado.emoji} *${llamado.texto}*`;
     } else if (plantilla === 2) {
-        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${nombreGrupoLower}*\n   _*${saludoHora}*_ ${saludoEmoji}\n\n${checkEmoji} *${productoUpper}* ${emojiProducto}`;
-        if (tieneDescripcion) msg += `\n${notaEmoji} ${descripcion}`;
-        msg += `\n${dineroEmoji} *precio:* $${precio} mxn\n\n${llamado.emoji} *${llamado.texto}*`;
+        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${grupoFormateado}*\n   _${saludoHora}_ ${saludoEmoji}\n\n${checkEmoji} *${productoFormateado}* ${emojiProducto}`;
+        if (descripcionFormateada) msg += `\n${notaEmoji} ${descripcionFormateada}`;
+        msg += `\n${dineroEmoji} *Precio:* $${precio} MXN\n\n${llamado.emoji} *${llamado.texto}*`;
     } else {
-        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${nombreGrupoLower}*\n   _*${saludoHora}*_ ${saludoEmoji}\n\n${checkEmoji} *${productoUpper}* ${emojiProducto}`;
-        if (tieneDescripcion) msg += `\n${notaEmoji} ${descripcion}`;
-        msg += `\n${dineroEmoji} *precio:* $${precio} mxn\n\n${llamado.emoji} *${llamado.texto}*`;
+        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${grupoFormateado}*\n   _${saludoHora}_ ${saludoEmoji}\n\n${checkEmoji} *${productoFormateado}* ${emojiProducto}`;
+        if (descripcionFormateada) msg += `\n${notaEmoji} ${descripcionFormateada}`;
+        msg += `\n${dineroEmoji} *Precio:* $${precio} MXN\n\n${llamado.emoji} *${llamado.texto}*`;
     }
     
     return msg;
+}
+
+function generarTiemposEnvio(cantidadGrupos) {
+    const tiempoTotalMs = SEGUNDOS_CICLO * 1000;
+    const puntos = [];
+    for (let i = 0; i < cantidadGrupos; i++) {
+        puntos.push(Math.random() * tiempoTotalMs);
+    }
+    puntos.sort((a, b) => a - b);
+    const delays = [];
+    let anterior = 0;
+    for (let i = 0; i < puntos.length; i++) {
+        delays.push(puntos[i] - anterior);
+        anterior = puntos[i];
+    }
+    return delays;
 }
 
 async function subirGrupos(sock, url) {
@@ -134,7 +163,7 @@ async function enviarMultimedia(sock, gid, contenido, item) {
         const imagen = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg')));
         const video = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.mp4') || f.endsWith('.webm')));
         if (imagen) archivos.push({ type: 'image', file: imagen, texto: contenido });
-        if (video) archivos.push({ type: 'video', file: video, texto: `🎥 mira el video de ${item.toLowerCase()}` });
+        if (video) archivos.push({ type: 'video', file: video, texto: `🎥 Mira el video de ${capitalizeEachWord(item)}` });
     }
     
     if (archivos.length > 0) {
@@ -151,13 +180,15 @@ async function enviarMultimedia(sock, gid, contenido, item) {
 async function ejecutarCiclo(sock, db, jidPersonal, cicloNum, gruposLista, productosLista) {
     if (!botActivo) return;
     const cantidad = gruposLista.length;
-    const delayBaseMs = (SEGUNDOS_CICLO / cantidad) * 1000;
-    console.log(`\x1b[35m[ciclo ${cicloNum}] inicio | grupos: ${cantidad}\x1b[0m`);
+    const delays = generarTiemposEnvio(cantidad);
+    
+    console.log(`\x1b[35m[ciclo ${cicloNum}] inicio | grupos: ${cantidad} | tiempo total: ${MINUTOS_CICLO}min\x1b[0m`);
     
     const productosEnviadosEnCiclo = new Set();
     
-    for (const [gid, gnom] of gruposLista) {
+    for (let i = 0; i < gruposLista.length; i++) {
         if (!botActivo) break;
+        const [gid, gnom] = gruposLista[i];
         
         let productosDisponibles = productosLista.filter(p => !productosEnviadosEnCiclo.has(p[0]));
         if (productosDisponibles.length === 0) {
@@ -169,20 +200,20 @@ async function ejecutarCiclo(sock, db, jidPersonal, cicloNum, gruposLista, produ
         const [item, desc, precio] = prod;
         productosEnviadosEnCiclo.add(item);
         
-        const delayFinal = Math.min(Math.max(delayBaseMs * (0.6 + Math.random() * 0.8), 7000), 25000);
+        const delayMs = delays[i];
         const plantilla = Math.floor(Math.random() * 3) + 1;
         const contenido = generarMensaje(gnom, item, desc, precio, plantilla);
         
-        console.log(`\x1b[36m[ciclo ${cicloNum}] ${gnom} (${(delayFinal/1000).toFixed(0)}s) plantilla ${plantilla}\x1b[0m`);
+        console.log(`\x1b[36m[ciclo ${cicloNum}] ${gnom} | espera: ${(delayMs/1000).toFixed(0)}s | plantilla ${plantilla}\x1b[0m`);
+        
+        await delay(delayMs);
         
         await sock.sendPresenceUpdate('composing', gid);
         await delay(6000);
         await sock.sendPresenceUpdate('paused', gid);
         
         await enviarMultimedia(sock, gid, contenido, item);
-        
         await sock.sendMessage(jidPersonal, { text: `[ciclo ${cicloNum}] ${gnom}\n${item}` });
-        await delay(delayFinal);
     }
     console.log(`\x1b[32m[ciclo ${cicloNum}] completado\x1b[0m`);
 }
@@ -200,18 +231,22 @@ async function iniciarCiclos(sock, db, jidPersonal) {
             
             await ejecutarCiclo(sock, db, jidPersonal, 1, listaG, listaP);
             if (!botActivo) return;
-            setTimeout(async () => {
-                if (!botActivo) return;
-                const g2 = db.exec("SELECT id, nombre FROM grupos");
-                const p2 = db.exec("SELECT item, descripcion, precio FROM productos");
-                if (g2[0] && p2[0]) await ejecutarCiclo(sock, db, jidPersonal, 2, g2[0].values, p2[0].values);
-            }, MINUTOS_CICLO * 60 * 1000);
-            setTimeout(async () => {
-                if (!botActivo) return;
-                const g3 = db.exec("SELECT id, nombre FROM grupos");
-                const p3 = db.exec("SELECT item, descripcion, precio FROM productos");
-                if (g3[0] && p3[0]) await ejecutarCiclo(sock, db, jidPersonal, 3, g3[0].values, p3[0].values);
-            }, MINUTOS_CICLO * 120 * 60 * 1000);
+            
+            const ahora2 = new Date();
+            if (ahora2.getHours() < HORA_FIN) {
+                setTimeout(async () => {
+                    if (!botActivo) return;
+                    const g2 = db.exec("SELECT id, nombre FROM grupos");
+                    const p2 = db.exec("SELECT item, descripcion, precio FROM productos");
+                    if (g2[0] && p2[0]) await ejecutarCiclo(sock, db, jidPersonal, 2, g2[0].values, p2[0].values);
+                }, MINUTOS_CICLO * 60 * 1000);
+                setTimeout(async () => {
+                    if (!botActivo) return;
+                    const g3 = db.exec("SELECT id, nombre FROM grupos");
+                    const p3 = db.exec("SELECT item, descripcion, precio FROM productos");
+                    if (g3[0] && p3[0]) await ejecutarCiclo(sock, db, jidPersonal, 3, g3[0].values, p3[0].values);
+                }, MINUTOS_CICLO * 120 * 60 * 1000);
+            }
         }
     } else if (botActivo) {
         const proximo = new Date();
@@ -311,8 +346,10 @@ async function iniciar() {
             const listaG = grupos[0].values;
             const listaP = prods[0].values;
             const productosEnviados = new Set();
+            const delays = generarTiemposEnvio(listaG.length);
             
-            for (const [gid, gnom] of listaG) {
+            for (let i = 0; i < listaG.length; i++) {
+                const [gid, gnom] = listaG[i];
                 let disponibles = listaP.filter(p => !productosEnviados.has(p[0]));
                 if (disponibles.length === 0) {
                     productosEnviados.clear();
@@ -321,16 +358,16 @@ async function iniciar() {
                 const prod = r(disponibles);
                 const [item, desc, precio] = prod;
                 productosEnviados.add(item);
-                const delayMsg = Math.floor(Math.random() * (25000 - 7000 + 1) + 7000);
+                const delayMs = delays[i];
                 const plantilla = Math.floor(Math.random() * 3) + 1;
                 const contenido = generarMensaje(gnom, item, desc, precio, plantilla);
-                console.log(`\x1b[36m[ test ] ${gnom} (${(delayMsg/1000).toFixed(0)}s) plantilla ${plantilla}\x1b[0m`);
+                console.log(`\x1b[36m[ test ] ${gnom} | espera: ${(delayMs/1000).toFixed(0)}s | plantilla ${plantilla}\x1b[0m`);
+                await delay(delayMs);
                 await sock.sendPresenceUpdate('composing', gid);
                 await delay(6000);
                 await sock.sendPresenceUpdate('paused', gid);
                 await enviarMultimedia(sock, gid, contenido, item);
                 await sock.sendMessage(msg.key.remoteJid, { text: `[test] ${gnom}\n${item}` });
-                await delay(delayMsg);
             }
             console.log("\x1b[32m[ test ] completado\x1b[0m");
         }
