@@ -6,17 +6,14 @@ const initSqlJs = require('sql.js');
 const axios = require('axios');
 const { exec } = require('child_process');
 
-exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ WAKE ] Activado\x1b[0m"); });
+exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ wake ] activado\x1b[0m"); });
 
 const DB_PATH = './grupospro.sqlite';
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const cuestion = (t) => new Promise((r) => rl.question(t, r));
 
-let emojiDB = {};
-let sinonimosDB = {};
-
-try { emojiDB = require('./emojis.js'); } catch(e) { console.log("\x1b[33m[ AVISO ] emojis.js no encontrado\x1b[0m"); }
-try { sinonimosDB = require('./sinonimos.js'); } catch(e) { console.log("\x1b[33m[ AVISO ] sinonimos.js no encontrado\x1b[0m"); }
+const emojiDB = require('./emojis.js');
+const sinonimosDB = require('./sinonimos.js');
 
 const HORA_SYNC = 8;
 const HORA_INICIO = 9;
@@ -29,70 +26,69 @@ let conexionEstablecida = false;
 let carpetaMultimedia = "";
 let urlSheets = "";
 
-const r = (arr) => { if (!arr || arr.length === 0) return ""; return arr[Math.floor(Math.random() * arr.length)]; };
+const r = (arr) => arr[Math.floor(Math.random() * arr.length)];
 
 function getSaludoPorHora() {
     const h = new Date().getHours();
-    if (h >= 6 && h < 12) return r(sinonimosDB.saludos?.manana || ["¡buenos dias!"]);
-    if (h >= 12 && h < 19) return r(sinonimosDB.saludos?.tarde || ["¡buenas tardes!"]);
-    return r(sinonimosDB.saludos?.noche || ["¡buenas noches!"]);
+    if (h >= 6 && h < 12) return r(sinonimosDB.saludos.manana);
+    if (h >= 12 && h < 19) return r(sinonimosDB.saludos.tarde);
+    return r(sinonimosDB.saludos.noche);
 }
 
 function getEmojiProducto(producto) {
     const p = producto.toLowerCase();
-    if (p.includes("playera")) return r(emojiDB.productos?.playera || ["👕"]);
-    if (p.includes("gorra")) return r(emojiDB.productos?.gorra || ["🧢"]);
-    if (p.includes("vaso") || p.includes("termico")) return r(emojiDB.productos?.vaso || ["🥤"]);
-    return r(emojiDB.productos?.default || ["🎁"]);
+    if (p.includes("playera")) return r(emojiDB.productos.playera);
+    if (p.includes("gorra")) return r(emojiDB.productos.gorra);
+    if (p.includes("vaso") || p.includes("termico")) return r(emojiDB.productos.vaso);
+    return r(emojiDB.productos.default);
 }
 
 function getGancho() {
     const opciones = [
-        { texto: "EXCELENTE OPORTUNIDAD", emoji: r(emojiDB.promo || ["🔥", "⭐", "📢"]) },
-        { texto: "MIRA ESTE PRODUCTO", emoji: r(emojiDB.promo || ["🔥", "⭐", "📢"]) },
-        { texto: "OFERTA ESPECIAL", emoji: r(emojiDB.promo || ["🔥", "⭐", "📢"]) },
-        { texto: "TE PUEDE INTERESAR", emoji: r(emojiDB.promo || ["🔥", "⭐", "📢"]) },
-        { texto: "MIRA ESTO", emoji: r(emojiDB.promo || ["🔥", "⭐", "📢"]) }
+        { texto: "EXCELENTE OPORTUNIDAD", emoji1: r(emojiDB.promo), emoji2: r(emojiDB.promo) },
+        { texto: "MIRA ESTE PRODUCTO", emoji1: r(emojiDB.promo), emoji2: r(emojiDB.promo) },
+        { texto: "OFERTA ESPECIAL", emoji1: r(emojiDB.promo), emoji2: r(emojiDB.promo) },
+        { texto: "TE PUEDE INTERESAR", emoji1: r(emojiDB.promo), emoji2: r(emojiDB.promo) },
+        { texto: "MIRA ESTO", emoji1: r(emojiDB.promo), emoji2: r(emojiDB.promo) }
     ];
-    const g = r(opciones);
-    const emoji2 = r(emojiDB.promo || ["🔥", "⭐", "📢"]);
-    return { texto: g.texto, emoji1: g.emoji, emoji2: emoji2 };
+    return r(opciones);
 }
 
-function getIntro() {
-    return r(sinonimosDB.intro || ["hola, colaboradores de"]);
-}
-
-function getLlamado() {
-    return { emoji: r(emojiDB.llamado || ["👇", "📩", "✅"]), texto: r(sinonimosDB.llamado || ["solicita el tuyo por privado"]) };
-}
+function getIntro() { return r(sinonimosDB.intro); }
+function getLlamado() { return { emoji: r(emojiDB.llamado), texto: r(sinonimosDB.llamado) }; }
+function getCheckEmoji() { return r(emojiDB.check || ["✅", "✔️", "🔹", "▫️", "▪️", "🔸", "🔘"]); }
+function getNotaEmoji() { return r(emojiDB.nota || ["📝", "📄", "📃", "📋", "✏️", "📌", "🔖"]); }
+function getDineroEmoji() { return r(emojiDB.dinero || ["💰", "💲", "🏷️", "💸", "💵", "💶", "💷"]); }
 
 function generarMensaje(nombreGrupo, producto, descripcion, precio, plantilla) {
     const gancho = getGancho();
     const intro = getIntro();
-    const saludoEmoji = r(emojiDB.saludos || ["👋", "🙌", "✨"]);
+    const saludoEmoji = r(emojiDB.saludos);
     const saludoHora = getSaludoPorHora();
     const emojiProducto = getEmojiProducto(producto);
     const llamado = getLlamado();
+    const checkEmoji = getCheckEmoji();
+    const notaEmoji = getNotaEmoji();
+    const dineroEmoji = getDineroEmoji();
+    
     const productoUpper = producto.charAt(0).toUpperCase() + producto.slice(1).toLowerCase();
     const nombreGrupoLower = nombreGrupo.toLowerCase();
-    
     const tieneDescripcion = descripcion && descripcion !== "Sin descripcion" && descripcion !== "";
     
     let msg = "";
     
     if (plantilla === 1) {
-        msg = `${gancho.emoji} *${gancho.texto}* ${gancho.emoji2}\n————————————————————\n> *${intro} ${nombreGrupoLower}*\n   _*${saludoHora}*_ ${saludoEmoji}\n————————————————————\n✅ *${productoUpper}* ${emojiProducto}`;
-        if (tieneDescripcion) msg += `\n📝 ${descripcion}`;
-        msg += `\n💰 *precio:* $${precio} mxn\n————————————————————\n${llamado.emoji} *${llamado.texto}*`;
+        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n————————————————————\n> *${intro} ${nombreGrupoLower}*\n   _*${saludoHora}*_ ${saludoEmoji}\n————————————————————\n${checkEmoji} *${productoUpper}* ${emojiProducto}`;
+        if (tieneDescripcion) msg += `\n${notaEmoji} ${descripcion}`;
+        msg += `\n${dineroEmoji} *precio:* $${precio} mxn\n————————————————————\n${llamado.emoji} *${llamado.texto}*`;
     } else if (plantilla === 2) {
-        msg = `${gancho.emoji} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${nombreGrupoLower}*\n   _*${saludoHora}*_ ${saludoEmoji}\n\n✅ *${productoUpper}* ${emojiProducto}`;
-        if (tieneDescripcion) msg += `\n📝 ${descripcion}`;
-        msg += `\n💰 *precio:* $${precio} mxn\n\n${llamado.emoji} *${llamado.texto}*`;
+        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${nombreGrupoLower}*\n   _*${saludoHora}*_ ${saludoEmoji}\n\n${checkEmoji} *${productoUpper}* ${emojiProducto}`;
+        if (tieneDescripcion) msg += `\n${notaEmoji} ${descripcion}`;
+        msg += `\n${dineroEmoji} *precio:* $${precio} mxn\n\n${llamado.emoji} *${llamado.texto}*`;
     } else {
-        msg = `${gancho.emoji} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${nombreGrupoLower}*\n   _*${saludoHora}*_ ${saludoEmoji}\n\n✅ *${productoUpper}* ${emojiProducto}`;
-        if (tieneDescripcion) msg += `\n📝 ${descripcion}`;
-        msg += `\n💰 *precio:* $${precio} mxn\n\n${llamado.emoji} *${llamado.texto}*`;
+        msg = `${gancho.emoji1} *${gancho.texto}* ${gancho.emoji2}\n> *${intro} ${nombreGrupoLower}*\n   _*${saludoHora}*_ ${saludoEmoji}\n\n${checkEmoji} *${productoUpper}* ${emojiProducto}`;
+        if (tieneDescripcion) msg += `\n${notaEmoji} ${descripcion}`;
+        msg += `\n${dineroEmoji} *precio:* $${precio} mxn\n\n${llamado.emoji} *${llamado.texto}*`;
     }
     
     return msg;
@@ -106,8 +102,8 @@ async function subirGrupos(sock, url) {
             await axios.get(`${url}?action=reporte&id=${encodeURIComponent(g.id)}&nombre=${encodeURIComponent(g.nombre)}`);
             await delay(100);
         }
-        console.log(`\x1b[32m[ UPLOAD ] Subidos ${lista.length} grupos\x1b[0m`);
-    } catch (e) { console.log(`\x1b[31m[ UPLOAD ERROR ] ${e.message}\x1b[0m`); }
+        console.log(`\x1b[32m[ upload ] subidos ${lista.length} grupos\x1b[0m`);
+    } catch (e) { console.log(`\x1b[31m[ upload error ] ${e.message}\x1b[0m`); }
 }
 
 async function sincronizarDescarga(url) {
@@ -123,11 +119,33 @@ async function sincronizarDescarga(url) {
             res.data.productos.forEach(p => db.run("INSERT INTO productos VALUES (?,?,?)", [p.item, p.descripcion || "Sin descripcion", p.precio]));
             res.data.grupos.forEach(g => db.run("INSERT INTO grupos VALUES (?,?)", [g.id, g.nombre]));
             fs.writeFileSync(DB_PATH, Buffer.from(db.export()));
-            console.log(`\x1b[32m[ SYNC ] OK | Productos: ${res.data.productos.length} | Grupos: ${res.data.grupos.length}\x1b[0m`);
+            console.log(`\x1b[32m[ sync ] ok | productos: ${res.data.productos.length} | grupos: ${res.data.grupos.length}\x1b[0m`);
             return true;
         }
-    } catch (e) { console.log("\x1b[31m[ SYNC ERROR ]\x1b[0m", e.message); return false; }
+    } catch (e) { console.log("\x1b[31m[ sync error ]\x1b[0m", e.message); return false; }
     return false;
+}
+
+async function enviarMultimedia(sock, gid, contenido, item) {
+    const archivos = [];
+    if (fs.existsSync(carpetaMultimedia)) {
+        const arch = fs.readdirSync(carpetaMultimedia);
+        const base = item.toLowerCase();
+        const imagen = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg')));
+        const video = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.mp4') || f.endsWith('.webm')));
+        if (imagen) archivos.push({ type: 'image', file: imagen, texto: contenido });
+        if (video) archivos.push({ type: 'video', file: video, texto: `🎥 mira el video de ${item.toLowerCase()}` });
+    }
+    
+    if (archivos.length > 0) {
+        for (const arch of archivos) {
+            if (arch.type === 'image') await sock.sendMessage(gid, { image: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
+            else await sock.sendMessage(gid, { video: { url: carpetaMultimedia + arch.file }, caption: arch.texto });
+            await delay(2000);
+        }
+    } else {
+        await sock.sendMessage(gid, { text: contenido });
+    }
 }
 
 async function ejecutarCiclo(sock, db, jidPersonal, cicloNum, gruposLista, productosLista) {
@@ -161,28 +179,7 @@ async function ejecutarCiclo(sock, db, jidPersonal, cicloNum, gruposLista, produ
         await delay(6000);
         await sock.sendPresenceUpdate('paused', gid);
         
-        const archivos = [];
-        if (fs.existsSync(carpetaMultimedia)) {
-            const arch = fs.readdirSync(carpetaMultimedia);
-            const base = item.toLowerCase();
-            const imagen = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg')));
-            const video = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.mp4') || f.endsWith('.webm')));
-            const documento = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.pdf') || f.endsWith('.docx')));
-            if (imagen) archivos.push({ type: 'image', file: imagen });
-            if (video) archivos.push({ type: 'video', file: video });
-            if (documento) archivos.push({ type: 'document', file: documento });
-        }
-        
-        if (archivos.length > 0) {
-            for (const arch of archivos) {
-                if (arch.type === 'image') await sock.sendMessage(gid, { image: { url: carpetaMultimedia + arch.file }, caption: contenido });
-                else if (arch.type === 'video') await sock.sendMessage(gid, { video: { url: carpetaMultimedia + arch.file }, caption: contenido });
-                else await sock.sendMessage(gid, { document: { url: carpetaMultimedia + arch.file }, caption: contenido });
-                await delay(2000);
-            }
-        } else {
-            await sock.sendMessage(gid, { text: contenido });
-        }
+        await enviarMultimedia(sock, gid, contenido, item);
         
         await sock.sendMessage(jidPersonal, { text: `[ciclo ${cicloNum}] ${gnom}\n${item}` });
         await delay(delayFinal);
@@ -234,7 +231,7 @@ async function programarSyncDiario(sock) {
     const msHasta8am = proxima8am - ahora;
     
     setTimeout(async () => {
-        console.log("\x1b[33m[ SYNC ] Ejecutando sincronizacion diaria (8:00 am)\x1b[0m");
+        console.log("\x1b[33m[ sync ] ejecutando sincronizacion diaria (8:00 am)\x1b[0m");
         if (urlSheets) {
             await subirGrupos(sock, urlSheets);
             await sincronizarDescarga(urlSheets);
@@ -331,27 +328,7 @@ async function iniciar() {
                 await sock.sendPresenceUpdate('composing', gid);
                 await delay(6000);
                 await sock.sendPresenceUpdate('paused', gid);
-                
-                const archivos = [];
-                if (fs.existsSync(carpetaMultimedia)) {
-                    const arch = fs.readdirSync(carpetaMultimedia);
-                    const base = item.toLowerCase();
-                    const imagen = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.jpg') || f.endsWith('.png') || f.endsWith('.jpeg')));
-                    const video = arch.find(f => f.toLowerCase().includes(base) && (f.endsWith('.mp4') || f.endsWith('.webm')));
-                    if (imagen) archivos.push({ type: 'image', file: imagen });
-                    if (video) archivos.push({ type: 'video', file: video });
-                }
-                
-                if (archivos.length > 0) {
-                    for (const arch of archivos) {
-                        if (arch.type === 'image') await sock.sendMessage(gid, { image: { url: carpetaMultimedia + arch.file }, caption: contenido });
-                        else await sock.sendMessage(gid, { video: { url: carpetaMultimedia + arch.file }, caption: contenido });
-                        await delay(2000);
-                    }
-                } else {
-                    await sock.sendMessage(gid, { text: contenido });
-                }
-                
+                await enviarMultimedia(sock, gid, contenido, item);
                 await sock.sendMessage(msg.key.remoteJid, { text: `[test] ${gnom}\n${item}` });
                 await delay(delayMsg);
             }
