@@ -8,11 +8,12 @@ import { exec } from 'child_process';
 import emojiDB from './emojis.js';
 import sinonimosDB from './sinonimos.js';
 
-const { 
-    default: makeWASocket, 
-    useMultiFileAuthState, 
-    delay, 
-    fetchLatestBaileysVersion 
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    delay,
+    fetchLatestBaileysVersion,
+    DisconnectReason
 } = pkg;
 
 exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ wake ] activado\x1b[0m"); });
@@ -451,17 +452,27 @@ async function iniciar() {
     
     const { state, saveCreds } = await useMultiFileAuthState('sesion_auth');
     const { version } = await fetchLatestBaileysVersion();
-    const sock = makeWASocket({ version, auth: state, printQRInTerminal: false, logger: pino({ level: "silent" }), browser: ["Ubuntu", "Chrome", "20.0.0"] });
+    const sock = makeWASocket({
+        version,
+        auth: state,
+        printQRInTerminal: false,
+        logger: pino({ level: "silent" }),
+        browser: ["Linux", "Chrome", "120.0.0.0"]
+    });
     
     if (!sock.authState.creds.registered && !conexionEstablecida) {
         console.log("\x1b[33m[ info ] vinculacion...\x1b[0m");
         await delay(3000);
         const num = await cuestion("\x1b[33m[ config ] tu numero (ej: 521XXXXXXXXXX): \x1b[0m");
-        try {
-            const codigo = await sock.requestPairingCode(num.trim());
-            console.log(`\x1b[32m\ncodigo: ${codigo}\n\x1b[0m`);
-            logTiempo("vinculacion");
-        } catch (e) { console.log(`\x1b[31m[ error ] ${e.message}\x1b[0m`); }
+        setTimeout(async () => {
+            try {
+                const codigo = await sock.requestPairingCode(num.trim());
+                console.log(`\x1b[32m\ncodigo: ${codigo}\n\x1b[0m`);
+                logTiempo("vinculacion");
+            } catch (e) {
+                console.log(`\x1b[31m[ error ] ${e.message}\x1b[0m`);
+            }
+        }, 3000);
     }
     
     sock.ev.on("creds.update", saveCreds);
