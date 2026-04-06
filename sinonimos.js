@@ -1,4 +1,4 @@
-module.exports = {
+export default {
     saludos: {
         manana: ["¡Buenos dias!", "¡Muy buen dia!", "¡Excelente mañana!", "¡Feliz amanecer!", "¡Que tal, buen dia!", "¡Hola! Buen dia", "¡Despierta con energia!", "¡Que tengas lindo dia", "¡Buen dia a todos!", "¡Feliz inicio de dia", "¡Que tengas un excelente dia", "¡Bendecido dia", "¡Buen dia familia", "¡Amanecer con todo", "¡A darle con todo este dia"],
         tarde: ["¡Buenas tardes!", "¡Excelente tarde!", "¡Feliz tarde!", "¡Disfruta la tarde!", "¡Que tal tu tarde!", "¡Hola! Buena tarde", "¡Para que aproveches la tarde", "¡Que tengas buena tarde", "¡Buena tarde a todos!", "¡Feliz resto de tarde", "¡Que pases buena tarde", "¡Disculpa la hora", "¡Para amenizar la tarde", "¡Tarde productiva", "¡Que tal va tu tarde"],
