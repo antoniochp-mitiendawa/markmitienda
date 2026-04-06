@@ -1,4 +1,4 @@
-import makeWASocket, { useMultiFileAuthState, delay, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import pkg from '@whiskeysockets/baileys';
 import pino from 'pino';
 import fs from 'fs';
 import readline from 'readline';
@@ -7,6 +7,13 @@ import axios from 'axios';
 import { exec } from 'child_process';
 import emojiDB from './emojis.js';
 import sinonimosDB from './sinonimos.js';
+
+const { 
+    default: makeWASocket, 
+    useMultiFileAuthState, 
+    delay, 
+    fetchLatestBaileysVersion 
+} = pkg;
 
 exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ wake ] activado\x1b[0m"); });
 
