@@ -1,4 +1,4 @@
-import pkg from '@whiskeysockets/baileys';
+import { makeWASocket, useMultiFileAuthState, delay, DisconnectReason } from 'baileys';
 import pino from 'pino';
 import fs from 'fs';
 import readline from 'readline';
@@ -8,14 +8,7 @@ import { exec } from 'child_process';
 import emojiDB from './emojis.js';
 import sinonimosDB from './sinonimos.js';
 
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    delay,
-    DisconnectReason
-} = pkg;
-
-const VERSION = '6.7.0';
+const VERSION = 'latest';
 
 exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ WAKE ] Activado\x1b[0m"); });
 
@@ -489,7 +482,6 @@ async function iniciar() {
     
     const { state, saveCreds } = await useMultiFileAuthState('sesion_auth');
     const sock = makeWASocket({
-        version: VERSION,
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: "silent" }),
