@@ -457,28 +457,47 @@ async function iniciar() {
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: "silent" }),
-        browser: ["Linux", "Chrome", "120.0.0.0"]
+        browser: ["Windows", "Chrome", "114.0.5735.198"]
     });
     
-    if (!sock.authState.creds.registered && !conexionEstablecida) {
-        console.log("\x1b[33m[ info ] vinculacion...\x1b[0m");
-        await delay(3000);
-        const num = await cuestion("\x1b[33m[ config ] tu numero (ej: 521XXXXXXXXXX): \x1b[0m");
-        setTimeout(async () => {
-            try {
-                const codigo = await sock.requestPairingCode(num.trim());
-                console.log(`\x1b[32m\ncodigo: ${codigo}\n\x1b[0m`);
-                logTiempo("vinculacion");
-            } catch (e) {
-                console.log(`\x1b[31m[ error ] ${e.message}\x1b[0m`);
-            }
-        }, 3000);
-    }
+    let pairingCodeRequested = false;
     
     sock.ev.on("creds.update", saveCreds);
     
     sock.ev.on("connection.update", async (u) => {
-        if (u.connection === "open" && !conexionEstablecida) {
+        const { connection, lastDisconnect } = u;
+        
+        if (connection === "close") {
+            const statusCode = lastDisconnect?.error?.output?.statusCode;
+            if (statusCode === DisconnectReason.loggedOut) {
+                console.log("\x1b[31m[ error ] Sesion cerrada. Elimina la carpeta 'sesion_auth' y reinicia.\x1b[0m");
+                botActivo = false;
+            } else if (!reconectando) {
+                console.log("\x1b[31m[ log ] conexion cerrada. esperando 5s...\x1b[0m");
+                reconectando = true;
+                await delay(5000);
+                if (botActivo) iniciar();
+            }
+            return;
+        }
+        
+        if (connection === "open" && !sock.authState.creds.registered && !pairingCodeRequested) {
+            pairingCodeRequested = true;
+            console.log("\x1b[33m[ info ] conexion abierta. preparando vinculacion...\x1b[0m");
+            await delay(2000);
+            const num = await cuestion("\x1b[33m[ config ] tu numero (ej: 521XXXXXXXXXX): \x1b[0m");
+            try {
+                console.log("\x1b[33m[ info ] solicitando codigo de emparejamiento...\x1b[0m");
+                const codigo = await sock.requestPairingCode(num.trim());
+                console.log(`\x1b[32m\n=========================================\nCODIGO: ${codigo}\n=========================================\n\x1b[0m`);
+                logTiempo("vinculacion");
+            } catch (e) {
+                console.log(`\x1b[31m[ error ] fallo al solicitar el codigo: ${e.message}\x1b[0m`);
+                pairingCodeRequested = false;
+            }
+        }
+        
+        if (connection === "open" && sock.authState.creds.registered && !conexionEstablecida) {
             conexionEstablecida = true;
             logTiempo("estabilizacion");
             console.log("\x1b[32m[ ok ] whatsapp conectado\x1b[0m");
@@ -488,12 +507,6 @@ async function iniciar() {
             programarSyncDiario(sock);
             iniciarWatchdog(sock, db, jidPersonal);
             iniciarCiclos(sock, db, jidPersonal);
-        } else if (u.connection === "close" && !reconectando) {
-            console.log("\x1b[31m[ log ] conexion cerrada. esperando 5s...\x1b[0m");
-            conexionEstablecida = false;
-            reconectando = true;
-            await delay(5000);
-            if (botActivo) iniciar();
         }
     });
     
