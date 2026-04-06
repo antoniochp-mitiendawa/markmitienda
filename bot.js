@@ -1,19 +1,18 @@
-const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
-const pino = require("pino");
-const fs = require("fs");
-const readline = require("readline");
-const initSqlJs = require('sql.js');
-const axios = require('axios');
-const { exec } = require('child_process');
+import { default as makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion } from '@whiskeysockets/baileys';
+import pino from 'pino';
+import fs from 'fs';
+import readline from 'readline';
+import initSqlJs from 'sql.js';
+import axios from 'axios';
+import { exec } from 'child_process';
+import emojiDB from './emojis.js';
+import sinonimosDB from './sinonimos.js';
 
 exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ wake ] activado\x1b[0m"); });
 
 const DB_PATH = './grupospro.sqlite';
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const cuestion = (t) => new Promise((r) => rl.question(t, r));
-
-const emojiDB = require('./emojis.js');
-const sinonimosDB = require('./sinonimos.js');
 
 const HORA_SYNC = 8;
 const HORA_INICIO = 9;
@@ -426,8 +425,8 @@ async function iniciar() {
         urlSheets = url;
         if (!await sincronizarDescarga(url)) return console.log("\x1b[31m[ error ] sincronizacion fallida\x1b[0m");
     } else {
-        const SQLt = await initSqlJs();
-        const dbt = new SQLt.Database(fs.readFileSync(DB_PATH));
+        const SQL = await initSqlJs();
+        const dbt = new SQL.Database(fs.readFileSync(DB_PATH));
         const urlRes = dbt.exec("SELECT valor FROM ajustes WHERE clave = 'url_sheets'");
         if (urlRes[0]) urlSheets = urlRes[0].values[0][0];
     }
@@ -539,4 +538,5 @@ async function iniciar() {
         }
     });
 }
+
 iniciar();
