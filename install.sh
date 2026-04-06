@@ -5,7 +5,7 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo -e "${BLUE}=========================================${NC}"
-echo -e "${YELLOW}   INSTALADOR MARKMITIENDA V17          ${NC}"
+echo -e "${YELLOW}   INSTALADOR MARKMITIENDA V18          ${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
 echo -e "${BLUE}[ 1/5 ]${NC} Actualizando sistema..."
@@ -22,8 +22,7 @@ cd $HOME/markmitienda
 echo -e "${BLUE}[ 4/5 ]${NC} Instalando dependencias npm..."
 npm init -y
 npm pkg set type="module"
-npm config set github-protocol https
-npm install @whiskeysockets/baileys@6.7.0 pino sql.js axios --force
+npm install baileys@latest pino sql.js axios --force
 
 echo -e "${BLUE}[ 5/5 ]${NC} Descargando archivos del bot..."
 curl -o bot.js https://raw.githubusercontent.com/antoniochp-mitiendawa/markmitienda/main/bot.js
