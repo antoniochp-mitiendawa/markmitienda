@@ -20,7 +20,7 @@ cd $HOME/markmitienda
 
 echo -e "${BLUE}[ 4/5 ]${NC} Instalando dependencias npm..."
 npm init -y
-npm install @whiskeysockets/baileys@6.7.0 pino sql.js axios
+npm install @whiskeysockets/baileys pino sql.js axios
 
 echo -e "${BLUE}[ 5/5 ]${NC} Descargando archivos del bot..."
 curl -o bot.js https://raw.githubusercontent.com/antoniochp-mitiendawa/markmitienda/main/bot.js
