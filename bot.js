@@ -1,4 +1,4 @@
-import { makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion, DisconnectReason } from 'baileys';
+import pkg from '@whiskeysockets/baileys';
 import pino from 'pino';
 import fs from 'fs';
 import readline from 'readline';
@@ -8,64 +8,20 @@ import { exec } from 'child_process';
 import emojiDB from './emojis.js';
 import sinonimosDB from './sinonimos.js';
 
-const CONFIG_PATH = './config.json';
+const {
+    default: makeWASocket,
+    useMultiFileAuthState,
+    delay,
+    DisconnectReason
+} = pkg;
 
-async function leerConfiguracion() {
-    if (fs.existsSync(CONFIG_PATH)) {
-        const data = fs.readFileSync(CONFIG_PATH, 'utf8');
-        return JSON.parse(data);
-    }
-    return null;
-}
-
-async function guardarConfiguracion(config) {
-    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
-}
-
-async function preguntarConfiguracion() {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    const cuestion = (t) => new Promise((r) => rl.question(t, r));
-    
-    console.log("\x1b[33m[ CONFIG ] Primera ejecucion. Configurando...\x1b[0m");
-    const urlSheets = await cuestion("\x1b[33m[ CONFIG ] Pega tu URL de Google Sheets: \x1b[0m");
-    let carpeta = await cuestion("\x1b[33m[ CONFIG ] Nombre de carpeta en /sdcard/ (ej: DCIM): \x1b[0m");
-    if (!carpeta.endsWith("/")) carpeta += "/";
-    carpeta = "/sdcard/" + carpeta;
-    
-    rl.close();
-    await delay(500);
-    
-    return { urlSheets, carpetaMultimedia: carpeta };
-}
-
-async function sincronizarDescarga(url) {
-    try {
-        const res = await axios.get(url);
-        if (res.data.status === "success") {
-            const SQL = await initSqlJs();
-            let db = new SQL.Database();
-            db.run("CREATE TABLE IF NOT EXISTS ajustes (clave TEXT PRIMARY KEY, valor TEXT)");
-            db.run("CREATE TABLE IF NOT EXISTS productos (item TEXT, descripcion TEXT, precio TEXT)");
-            db.run("CREATE TABLE IF NOT EXISTS grupos (id TEXT, nombre TEXT)");
-            db.run("INSERT OR REPLACE INTO ajustes VALUES ('url_sheets',?)", [url]);
-            db.run("DELETE FROM productos");
-            db.run("DELETE FROM grupos");
-            res.data.productos.forEach(p => db.run("INSERT INTO productos VALUES (?,?,?)", [p.item, p.descripcion || "Sin descripcion", p.precio || ""]));
-            res.data.grupos.forEach(g => db.run("INSERT INTO grupos VALUES (?,?)", [g.id, g.nombre]));
-            fs.writeFileSync('./grupospro.sqlite', Buffer.from(db.export()));
-            console.log(`\x1b[32m[ SYNC ] OK | productos: ${res.data.productos.length} | grupos: ${res.data.grupos.length}\x1b[0m`);
-            return true;
-        }
-    } catch (e) {
-        console.log("\x1b[31m[ SYNC ERROR ]\x1b[0m", e.message);
-        return false;
-    }
-    return false;
-}
+const VERSION = '6.7.0';
 
 exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ WAKE ] Activado\x1b[0m"); });
 
+const CONFIG_PATH = './config.json';
 const DB_PATH = './grupospro.sqlite';
+
 const HORA_SYNC = 8;
 const HORA_INICIO = 9;
 const HORA_FIN = 22;
@@ -265,6 +221,29 @@ async function subirGrupos(sock, url) {
     } catch (e) { console.log(`\x1b[31m[ upload error ] ${e.message}\x1b[0m`); }
 }
 
+async function sincronizarDescarga(url) {
+    try {
+        const res = await axios.get(url);
+        if (res.data.status === "success") {
+            const SQL = await initSqlJs();
+            let db = new SQL.Database();
+            db.run("CREATE TABLE IF NOT EXISTS ajustes (clave TEXT PRIMARY KEY, valor TEXT)");
+            db.run("CREATE TABLE IF NOT EXISTS productos (item TEXT, descripcion TEXT, precio TEXT)");
+            db.run("CREATE TABLE IF NOT EXISTS grupos (id TEXT, nombre TEXT)");
+            db.run("INSERT OR REPLACE INTO ajustes VALUES ('url_sheets',?)", [url]);
+            db.run("DELETE FROM productos");
+            db.run("DELETE FROM grupos");
+            res.data.productos.forEach(p => db.run("INSERT INTO productos VALUES (?,?,?)", [p.item, p.descripcion || "Sin descripcion", p.precio || ""]));
+            res.data.grupos.forEach(g => db.run("INSERT INTO grupos VALUES (?,?)", [g.id, g.nombre]));
+            fs.writeFileSync(DB_PATH, Buffer.from(db.export()));
+            console.log(`\x1b[32m[ sync ] ok | productos: ${res.data.productos.length} | grupos: ${res.data.grupos.length}\x1b[0m`);
+            logTiempo("sincronizacion");
+            return true;
+        }
+    } catch (e) { console.log("\x1b[31m[ sync error ]\x1b[0m", e.message); return false; }
+    return false;
+}
+
 function getTextoMultimedia(tipo, item) {
     const itemFormateado = `*_${capitalizeEachWord(item)}_*`;
     const opcionesVideo = [
@@ -443,6 +422,34 @@ function iniciarWatchdog(sock, db, jidPersonal) {
     }, 60000);
 }
 
+async function leerConfiguracion() {
+    if (fs.existsSync(CONFIG_PATH)) {
+        const data = fs.readFileSync(CONFIG_PATH, 'utf8');
+        return JSON.parse(data);
+    }
+    return null;
+}
+
+async function guardarConfiguracion(config) {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+}
+
+async function preguntarConfiguracion() {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const cuestion = (t) => new Promise((r) => rl.question(t, r));
+    
+    console.log("\x1b[33m[ CONFIG ] Primera ejecucion. Configurando...\x1b[0m");
+    const urlSheets = await cuestion("\x1b[33m[ CONFIG ] Pega tu URL de Google Sheets: \x1b[0m");
+    let carpeta = await cuestion("\x1b[33m[ CONFIG ] Nombre de carpeta en /sdcard/ (ej: DCIM): \x1b[0m");
+    if (!carpeta.endsWith("/")) carpeta += "/";
+    carpeta = "/sdcard/" + carpeta;
+    
+    rl.close();
+    await delay(500);
+    
+    return { urlSheets, carpetaMultimedia: carpeta };
+}
+
 async function iniciar() {
     tiempoInicio = Date.now();
     console.log("\x1b[34m[ MARKMITIENDA ] Bot de WhatsApp\x1b[0m");
@@ -481,9 +488,8 @@ async function iniciar() {
     await delay(1000);
     
     const { state, saveCreds } = await useMultiFileAuthState('sesion_auth');
-    const { version } = await fetchLatestBaileysVersion();
     const sock = makeWASocket({
-        version,
+        version: VERSION,
         auth: state,
         printQRInTerminal: false,
         logger: pino({ level: "silent" }),
