@@ -5,14 +5,15 @@ YELLOW='\033[1;33m'
 NC='\033[0m'
 
 echo -e "${BLUE}=========================================${NC}"
-echo -e "${YELLOW}   INSTALADOR MARKMITIENDA V13          ${NC}"
+echo -e "${YELLOW}   INSTALADOR MARKMITIENDA V14          ${NC}"
 echo -e "${BLUE}=========================================${NC}"
 
 echo -e "${BLUE}[ 1/5 ]${NC} Actualizando sistema..."
 pkg update -y && pkg upgrade -y
 
 echo -e "${BLUE}[ 2/5 ]${NC} Instalando Node.js LTS y herramientas..."
-pkg install -y nodejs-lts git python clang make
+pkg install -y nodejs-lts
+pkg install -y git python clang make
 
 echo -e "${BLUE}[ 3/5 ]${NC} Creando carpeta del proyecto..."
 mkdir -p $HOME/markmitienda
