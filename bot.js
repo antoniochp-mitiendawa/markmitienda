@@ -1,26 +1,19 @@
-import pkg from '@whiskeysockets/baileys';
-import pino from 'pino';
-import fs from 'fs';
-import readline from 'readline';
-import initSqlJs from 'sql.js';
-import axios from 'axios';
-import { exec } from 'child_process';
-import emojiDB from './emojis.js';
-import sinonimosDB from './sinonimos.js';
-
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    delay,
-    fetchLatestBaileysVersion,
-    DisconnectReason
-} = pkg;
+const { default: makeWASocket, useMultiFileAuthState, delay, fetchLatestBaileysVersion } = require("@whiskeysockets/baileys");
+const pino = require("pino");
+const fs = require("fs");
+const readline = require("readline");
+const initSqlJs = require('sql.js');
+const axios = require('axios');
+const { exec } = require('child_process');
 
 exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ wake ] activado\x1b[0m"); });
 
 const DB_PATH = './grupospro.sqlite';
 const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 const cuestion = (t) => new Promise((r) => rl.question(t, r));
+
+const emojiDB = require('./emojis.js');
+const sinonimosDB = require('./sinonimos.js');
 
 const HORA_SYNC = 8;
 const HORA_INICIO = 9;
@@ -433,8 +426,8 @@ async function iniciar() {
         urlSheets = url;
         if (!await sincronizarDescarga(url)) return console.log("\x1b[31m[ error ] sincronizacion fallida\x1b[0m");
     } else {
-        const SQL = await initSqlJs();
-        const dbt = new SQL.Database(fs.readFileSync(DB_PATH));
+        const SQLt = await initSqlJs();
+        const dbt = new SQLt.Database(fs.readFileSync(DB_PATH));
         const urlRes = dbt.exec("SELECT valor FROM ajustes WHERE clave = 'url_sheets'");
         if (urlRes[0]) urlSheets = urlRes[0].values[0][0];
     }
@@ -452,52 +445,23 @@ async function iniciar() {
     
     const { state, saveCreds } = await useMultiFileAuthState('sesion_auth');
     const { version } = await fetchLatestBaileysVersion();
-    const sock = makeWASocket({
-        version,
-        auth: state,
-        printQRInTerminal: false,
-        logger: pino({ level: "silent" }),
-        browser: ["Windows", "Chrome", "114.0.5735.198"]
-    });
+    const sock = makeWASocket({ version, auth: state, printQRInTerminal: false, logger: pino({ level: "silent" }), browser: ["Ubuntu", "Chrome", "20.0.0"] });
     
-    let pairingCodeRequested = false;
+    if (!sock.authState.creds.registered && !conexionEstablecida) {
+        console.log("\x1b[33m[ info ] vinculacion...\x1b[0m");
+        await delay(3000);
+        const num = await cuestion("\x1b[33m[ config ] tu numero (ej: 521XXXXXXXXXX): \x1b[0m");
+        try {
+            const codigo = await sock.requestPairingCode(num.trim());
+            console.log(`\x1b[32m\ncodigo: ${codigo}\n\x1b[0m`);
+            logTiempo("vinculacion");
+        } catch (e) { console.log(`\x1b[31m[ error ] ${e.message}\x1b[0m`); }
+    }
     
     sock.ev.on("creds.update", saveCreds);
     
     sock.ev.on("connection.update", async (u) => {
-        const { connection, lastDisconnect } = u;
-        
-        if (connection === "close") {
-            const statusCode = lastDisconnect?.error?.output?.statusCode;
-            if (statusCode === DisconnectReason.loggedOut) {
-                console.log("\x1b[31m[ error ] Sesion cerrada. Elimina la carpeta 'sesion_auth' y reinicia.\x1b[0m");
-                botActivo = false;
-            } else if (!reconectando) {
-                console.log("\x1b[31m[ log ] conexion cerrada. esperando 5s...\x1b[0m");
-                reconectando = true;
-                await delay(5000);
-                if (botActivo) iniciar();
-            }
-            return;
-        }
-        
-        if (connection === "open" && !sock.authState.creds.registered && !pairingCodeRequested) {
-            pairingCodeRequested = true;
-            console.log("\x1b[33m[ info ] conexion abierta. preparando vinculacion...\x1b[0m");
-            await delay(2000);
-            const num = await cuestion("\x1b[33m[ config ] tu numero (ej: 521XXXXXXXXXX): \x1b[0m");
-            try {
-                console.log("\x1b[33m[ info ] solicitando codigo de emparejamiento...\x1b[0m");
-                const codigo = await sock.requestPairingCode(num.trim());
-                console.log(`\x1b[32m\n=========================================\nCODIGO: ${codigo}\n=========================================\n\x1b[0m`);
-                logTiempo("vinculacion");
-            } catch (e) {
-                console.log(`\x1b[31m[ error ] fallo al solicitar el codigo: ${e.message}\x1b[0m`);
-                pairingCodeRequested = false;
-            }
-        }
-        
-        if (connection === "open" && sock.authState.creds.registered && !conexionEstablecida) {
+        if (u.connection === "open" && !conexionEstablecida) {
             conexionEstablecida = true;
             logTiempo("estabilizacion");
             console.log("\x1b[32m[ ok ] whatsapp conectado\x1b[0m");
@@ -507,6 +471,12 @@ async function iniciar() {
             programarSyncDiario(sock);
             iniciarWatchdog(sock, db, jidPersonal);
             iniciarCiclos(sock, db, jidPersonal);
+        } else if (u.connection === "close" && !reconectando) {
+            console.log("\x1b[31m[ log ] conexion cerrada. esperando 5s...\x1b[0m");
+            conexionEstablecida = false;
+            reconectando = true;
+            await delay(5000);
+            if (botActivo) iniciar();
         }
     });
     
@@ -569,5 +539,4 @@ async function iniciar() {
         }
     });
 }
-
 iniciar();
