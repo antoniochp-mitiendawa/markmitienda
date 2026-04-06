@@ -8,12 +8,64 @@ import { exec } from 'child_process';
 import emojiDB from './emojis.js';
 import sinonimosDB from './sinonimos.js';
 
-exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ wake ] activado\x1b[0m"); });
+const CONFIG_PATH = './config.json';
+
+async function leerConfiguracion() {
+    if (fs.existsSync(CONFIG_PATH)) {
+        const data = fs.readFileSync(CONFIG_PATH, 'utf8');
+        return JSON.parse(data);
+    }
+    return null;
+}
+
+async function guardarConfiguracion(config) {
+    fs.writeFileSync(CONFIG_PATH, JSON.stringify(config, null, 2));
+}
+
+async function preguntarConfiguracion() {
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const cuestion = (t) => new Promise((r) => rl.question(t, r));
+    
+    console.log("\x1b[33m[ CONFIG ] Primera ejecucion. Configurando...\x1b[0m");
+    const urlSheets = await cuestion("\x1b[33m[ CONFIG ] Pega tu URL de Google Sheets: \x1b[0m");
+    let carpeta = await cuestion("\x1b[33m[ CONFIG ] Nombre de carpeta en /sdcard/ (ej: DCIM): \x1b[0m");
+    if (!carpeta.endsWith("/")) carpeta += "/";
+    carpeta = "/sdcard/" + carpeta;
+    
+    rl.close();
+    await delay(500);
+    
+    return { urlSheets, carpetaMultimedia: carpeta };
+}
+
+async function sincronizarDescarga(url) {
+    try {
+        const res = await axios.get(url);
+        if (res.data.status === "success") {
+            const SQL = await initSqlJs();
+            let db = new SQL.Database();
+            db.run("CREATE TABLE IF NOT EXISTS ajustes (clave TEXT PRIMARY KEY, valor TEXT)");
+            db.run("CREATE TABLE IF NOT EXISTS productos (item TEXT, descripcion TEXT, precio TEXT)");
+            db.run("CREATE TABLE IF NOT EXISTS grupos (id TEXT, nombre TEXT)");
+            db.run("INSERT OR REPLACE INTO ajustes VALUES ('url_sheets',?)", [url]);
+            db.run("DELETE FROM productos");
+            db.run("DELETE FROM grupos");
+            res.data.productos.forEach(p => db.run("INSERT INTO productos VALUES (?,?,?)", [p.item, p.descripcion || "Sin descripcion", p.precio || ""]));
+            res.data.grupos.forEach(g => db.run("INSERT INTO grupos VALUES (?,?)", [g.id, g.nombre]));
+            fs.writeFileSync('./grupospro.sqlite', Buffer.from(db.export()));
+            console.log(`\x1b[32m[ SYNC ] OK | productos: ${res.data.productos.length} | grupos: ${res.data.grupos.length}\x1b[0m`);
+            return true;
+        }
+    } catch (e) {
+        console.log("\x1b[31m[ SYNC ERROR ]\x1b[0m", e.message);
+        return false;
+    }
+    return false;
+}
+
+exec('termux-wake-lock', (e) => { if (!e) console.log("\x1b[32m[ WAKE ] Activado\x1b[0m"); });
 
 const DB_PATH = './grupospro.sqlite';
-const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-const cuestion = (t) => new Promise((r) => rl.question(t, r));
-
 const HORA_SYNC = 8;
 const HORA_INICIO = 9;
 const HORA_FIN = 22;
@@ -213,30 +265,6 @@ async function subirGrupos(sock, url) {
     } catch (e) { console.log(`\x1b[31m[ upload error ] ${e.message}\x1b[0m`); }
 }
 
-async function sincronizarDescarga(url) {
-    const inicio = Date.now();
-    try {
-        const res = await axios.get(url);
-        if (res.data.status === "success") {
-            const SQL = await initSqlJs();
-            let db = new SQL.Database();
-            db.run("CREATE TABLE IF NOT EXISTS ajustes (clave TEXT PRIMARY KEY, valor TEXT)");
-            db.run("CREATE TABLE IF NOT EXISTS productos (item TEXT, descripcion TEXT, precio TEXT)");
-            db.run("CREATE TABLE IF NOT EXISTS grupos (id TEXT, nombre TEXT)");
-            db.run("INSERT OR REPLACE INTO ajustes VALUES ('url_sheets',?)", [url]);
-            db.run("DELETE FROM productos");
-            db.run("DELETE FROM grupos");
-            res.data.productos.forEach(p => db.run("INSERT INTO productos VALUES (?,?,?)", [p.item, p.descripcion || "Sin descripcion", p.precio || ""]));
-            res.data.grupos.forEach(g => db.run("INSERT INTO grupos VALUES (?,?)", [g.id, g.nombre]));
-            fs.writeFileSync(DB_PATH, Buffer.from(db.export()));
-            console.log(`\x1b[32m[ sync ] ok | productos: ${res.data.productos.length} | grupos: ${res.data.grupos.length}\x1b[0m`);
-            logTiempo("sincronizacion");
-            return true;
-        }
-    } catch (e) { console.log("\x1b[31m[ sync error ]\x1b[0m", e.message); return false; }
-    return false;
-}
-
 function getTextoMultimedia(tipo, item) {
     const itemFormateado = `*_${capitalizeEachWord(item)}_*`;
     const opcionesVideo = [
@@ -417,13 +445,24 @@ function iniciarWatchdog(sock, db, jidPersonal) {
 
 async function iniciar() {
     tiempoInicio = Date.now();
-    console.log("\x1b[34m[ markmitienda ] bot de whatsapp\x1b[0m");
+    console.log("\x1b[34m[ MARKMITIENDA ] Bot de WhatsApp\x1b[0m");
+    
+    const config = await leerConfiguracion();
+    if (config) {
+        urlSheets = config.urlSheets;
+        carpetaMultimedia = config.carpetaMultimedia;
+        console.log("\x1b[32m[ CONFIG ] Configuracion cargada\x1b[0m");
+    } else {
+        const nuevaConfig = await preguntarConfiguracion();
+        urlSheets = nuevaConfig.urlSheets;
+        carpetaMultimedia = nuevaConfig.carpetaMultimedia;
+        await guardarConfiguracion(nuevaConfig);
+        console.log("\x1b[32m[ CONFIG ] Configuracion guardada\x1b[0m");
+    }
     
     if (!fs.existsSync(DB_PATH)) {
-        console.log("\x1b[33m[ aviso ] no hay base de datos. sincronizando...\x1b[0m");
-        const url = await cuestion("\x1b[33m[ config ] pega tu url de google sheets: \x1b[0m");
-        urlSheets = url;
-        if (!await sincronizarDescarga(url)) return console.log("\x1b[31m[ error ] sincronizacion fallida\x1b[0m");
+        console.log("\x1b[33m[ AVISO ] No hay base de datos. Sincronizando...\x1b[0m");
+        if (!await sincronizarDescarga(urlSheets)) return console.log("\x1b[31m[ ERROR ] Sincronizacion fallida\x1b[0m");
     } else {
         const SQL = await initSqlJs();
         const dbt = new SQL.Database(fs.readFileSync(DB_PATH));
@@ -431,16 +470,15 @@ async function iniciar() {
         if (urlRes[0]) urlSheets = urlRes[0].values[0][0];
     }
     
-    if (!carpetaMultimedia) {
-        carpetaMultimedia = await cuestion("\x1b[33m[ config ] nombre de carpeta en /sdcard/ (ej: DCIM): \x1b[0m");
-        if (!carpetaMultimedia.endsWith("/")) carpetaMultimedia += "/";
-        carpetaMultimedia = "/sdcard/" + carpetaMultimedia;
-        if (!fs.existsSync(carpetaMultimedia)) console.log("\x1b[33m[ aviso ] carpeta no existe, solo texto\x1b[0m");
+    if (!fs.existsSync(carpetaMultimedia)) {
+        console.log("\x1b[33m[ AVISO ] Carpeta no existe, solo texto\x1b[0m");
     }
     
     const SQL = await initSqlJs();
     const db = new SQL.Database(fs.readFileSync(DB_PATH));
-    console.log("\x1b[32m[ ok ] base de datos cargada\x1b[0m");
+    console.log("\x1b[32m[ OK ] Base de datos cargada\x1b[0m");
+    
+    await delay(1000);
     
     const { state, saveCreds } = await useMultiFileAuthState('sesion_auth');
     const { version } = await fetchLatestBaileysVersion();
@@ -462,10 +500,10 @@ async function iniciar() {
         if (connection === "close") {
             const statusCode = lastDisconnect?.error?.output?.statusCode;
             if (statusCode === DisconnectReason.loggedOut) {
-                console.log("\x1b[31m[ error ] Sesion cerrada. Elimina la carpeta 'sesion_auth' y reinicia.\x1b[0m");
+                console.log("\x1b[31m[ ERROR ] Sesion cerrada. Elimina la carpeta 'sesion_auth' y reinicia.\x1b[0m");
                 botActivo = false;
             } else if (!reconectando) {
-                console.log("\x1b[31m[ log ] conexion cerrada. esperando 5s...\x1b[0m");
+                console.log("\x1b[31m[ LOG ] Conexion cerrada. Esperando 5s...\x1b[0m");
                 reconectando = true;
                 await delay(5000);
                 if (botActivo) iniciar();
@@ -475,16 +513,19 @@ async function iniciar() {
         
         if (connection === "open" && !sock.authState.creds.registered && !pairingCodeRequested) {
             pairingCodeRequested = true;
-            console.log("\x1b[33m[ info ] conexion abierta. preparando vinculacion...\x1b[0m");
+            console.log("\x1b[33m[ INFO ] Conexion abierta. Preparando vinculacion...\x1b[0m");
             await delay(2000);
-            const num = await cuestion("\x1b[33m[ config ] tu numero (ej: 521XXXXXXXXXX): \x1b[0m");
+            const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+            const cuestionNum = (t) => new Promise((r) => rl.question(t, r));
+            const num = await cuestionNum("\x1b[33m[ CONFIG ] Tu numero (ej: 521XXXXXXXXXX): \x1b[0m");
+            rl.close();
             try {
-                console.log("\x1b[33m[ info ] solicitando codigo de emparejamiento...\x1b[0m");
+                console.log("\x1b[33m[ INFO ] Solicitando codigo de emparejamiento...\x1b[0m");
                 const codigo = await sock.requestPairingCode(num.trim());
                 console.log(`\x1b[32m\n=========================================\nCODIGO: ${codigo}\n=========================================\n\x1b[0m`);
                 logTiempo("vinculacion");
             } catch (e) {
-                console.log(`\x1b[31m[ error ] fallo al solicitar el codigo: ${e.message}\x1b[0m`);
+                console.log(`\x1b[31m[ ERROR ] Fallo al solicitar el codigo: ${e.message}\x1b[0m`);
                 pairingCodeRequested = false;
             }
         }
@@ -492,8 +533,8 @@ async function iniciar() {
         if (connection === "open" && sock.authState.creds.registered && !conexionEstablecida) {
             conexionEstablecida = true;
             logTiempo("estabilizacion");
-            console.log("\x1b[32m[ ok ] whatsapp conectado\x1b[0m");
-            console.log("\x1b[36m[ aviso ] escribe 'prueba' en tu chat\x1b[0m");
+            console.log("\x1b[32m[ OK ] WhatsApp conectado\x1b[0m");
+            console.log("\x1b[36m[ AVISO ] Escribe 'prueba' en tu chat\x1b[0m");
             const jidPersonal = sock.user.id.split(":")[0] + "@s.whatsapp.net";
             await subirGrupos(sock, urlSheets);
             programarSyncDiario(sock);
@@ -508,16 +549,16 @@ async function iniciar() {
         const txt = (msg.message.conversation || msg.message.extendedTextMessage?.text || "").toLowerCase();
         if (txt === "prueba") {
             ultimoMensaje = Date.now();
-            console.log("\x1b[35m[ test ] iniciando...\x1b[0m");
+            console.log("\x1b[35m[ TEST ] Iniciando...\x1b[0m");
             const grupos = db.exec("SELECT id, nombre FROM grupos");
             const prods = db.exec("SELECT item, descripcion, precio FROM productos");
-            if (!grupos[0] || !prods[0]) return console.log("\x1b[31m[ error ] no hay datos\x1b[0m");
+            if (!grupos[0] || !prods[0]) return console.log("\x1b[31m[ ERROR ] No hay datos\x1b[0m");
             const listaG = grupos[0].values;
             const listaP = prods[0].values;
             const tiempoRealMs = getTiempoRealDisponible();
             
             if (tiempoRealMs <= 0) {
-                console.log("\x1b[33m[ test ] fuera de horario, no se envia\x1b[0m");
+                console.log("\x1b[33m[ TEST ] Fuera de horario, no se envia\x1b[0m");
                 return;
             }
             
@@ -535,14 +576,14 @@ async function iniciar() {
                 const delayMs = delays[i];
                 const plantilla = Math.floor(Math.random() * 3) + 1;
                 const contenido = generarMensaje(gnom, item, desc, precio, plantilla);
-                console.log(`\x1b[36m[ test ] ${gnom} | espera: ${(delayMs/1000).toFixed(0)}s | producto: ${item}\x1b[0m`);
+                console.log(`\x1b[36m[ TEST ] ${gnom} | espera: ${(delayMs/1000).toFixed(0)}s | producto: ${item}\x1b[0m`);
                 await delay(delayMs);
                 try {
                     await sock.sendPresenceUpdate('composing', gid);
                     await delay(6000);
                     await sock.sendPresenceUpdate('paused', gid);
                 } catch (e) {
-                    console.log(`\x1b[31m[ error ] typing en ${gnom}: ${e.message}\x1b[0m`);
+                    console.log(`\x1b[31m[ ERROR ] Typing en ${gnom}: ${e.message}\x1b[0m`);
                     continue;
                 }
                 await enviarMultimedia(sock, gid, contenido, item);
@@ -556,8 +597,8 @@ async function iniciar() {
                 resumenProductos += `${prod} (${count})`;
             }
             
-            console.log(`\x1b[32m[ test ] completado | grupos: ${listaG.length} | productos: ${resumenProductos}\x1b[0m`);
-            await sock.sendMessage(msg.key.remoteJid, { text: `[test] completado\nGrupos: ${listaG.length}\nProductos: ${resumenProductos}` });
+            console.log(`\x1b[32m[ TEST ] Completado | grupos: ${listaG.length} | productos: ${resumenProductos}\x1b[0m`);
+            await sock.sendMessage(msg.key.remoteJid, { text: `[TEST] Completado\nGrupos: ${listaG.length}\nProductos: ${resumenProductos}` });
         }
     });
 }
